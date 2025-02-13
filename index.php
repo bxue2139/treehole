@@ -25,24 +25,72 @@ $messages = $conn->query($sql);
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>留言板</title>
+  <title>树洞 - 匿名留言板</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 引入 Bootstrap CSS -->
-  <link rel="stylesheet" href="/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css">
   <style>
     body { padding-top: 20px; }
     .message { border-bottom: 1px solid #ddd; padding: 10px 0; }
-    .message img { max-width: 100%; height: auto; }
+    .message img { 
+        max-width: 100%;     /* 保证图片宽度不超过父容器宽度 */
+        height: auto;       /* 保持图片的纵横比 */
+        display: block;     /* 图片显示为块级元素，避免有空白 */
+        margin: 0 auto;     /* 可选：使图片居中显示 */
+    }
     .timeline-time { color: #888; font-size: 0.9em; }
     .copy-btn { margin-left: 10px; }
     /* 分开显示消息编辑区和信息流 */
     .container { max-width: 800px; }
     .preview { border: 1px solid #ccc; padding: 10px; margin-top: 10px; display: none; }
+    
+    /* 悬浮搜索按钮样式 */
+    .search-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      padding: 15px;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    
+    /* 搜索框的样式 */
+    .search-container {
+      position: fixed;
+      bottom: 70px;
+      right: 20px;
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 10px;
+      width: 300px;
+      display: none; /* 默认隐藏 */
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+      z-index: 999;
+    }
+    
+    .search-container input {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
+    /* 手机端样式 */
+    @media (max-width: 768px) {
+        .message img {
+            max-width: 100%;
+        }
+    }
   </style>
 </head>
 <body>
 <div class="container">
-  <h2 class="text-center">留言板</h2>
+  <h2 class="text-center">树洞匿名留言板</h2>
+  
   <!-- 消息编辑部分 -->
   <div class="card mb-4">
     <div class="card-header">消息编辑</div>
@@ -121,46 +169,31 @@ $messages = $conn->query($sql);
   </div>
 </div>
 
+<!-- 悬浮搜索按钮 -->
+<button class="search-btn" id="searchBtn">🔍</button>
+
+<!-- 搜索框 -->
+<div class="search-container" id="searchContainer">
+  <form action="search.php" method="get">
+    <input type="text" class="form-control" name="q" placeholder="输入搜索内容或标签" required>
+    <button class="btn btn-primary" type="submit">搜索</button>
+    <button type="button" class="btn btn-outline-danger" id="closeSearch">关闭</button>
+  </form>
+</div>
+
 <!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
-<!-- 引入 Marked.js 用于 Markdown 预览 -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
-$(document).ready(function(){
-  // 表单支持 Enter 键提交（不换行）
-  $('#messageForm').on('keypress', function(e) {
-    if(e.which == 13 && !e.shiftKey) {
-      e.preventDefault();
-      $('#sendBtn').click();
-    }
+$(document).ready(function() {
+  // 点击搜索按钮，显示搜索框
+  $('#searchBtn').click(function() {
+    $('#searchContainer').fadeIn();
   });
-  
-  // 预览按钮功能：将 Markdown 转为 HTML 显示/隐藏预览区
-  $('#previewBtn').click(function(){
-    var content = $('#content').val();
-    var html = marked.parse(content);
-    $('#previewArea').html(html).toggle();
-  });
-  
-  // 复制按钮功能
-  $('.copy-btn').click(function(){
-    var content = $(this).data('content');
-    navigator.clipboard.writeText(content).then(function(){
-      alert("已复制消息内容到剪贴板");
-    }, function(err){
-      alert("复制失败: " + err);
-    });
-  });
-  
-  // 快速跳转功能：跳转到指定消息 ID 的位置
-  $('#jumpBtn').click(function(){
-    var id = $('#jumpId').val();
-    if(id){
-      $('html, body').animate({
-        scrollTop: $('#msg-' + id).offset().top
-      }, 500);
-    }
+
+  // 点击关闭按钮，隐藏搜索框
+  $('#closeSearch').click(function() {
+    $('#searchContainer').fadeOut();
   });
 });
 </script>
