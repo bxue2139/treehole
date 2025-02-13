@@ -46,6 +46,40 @@ $total_results = count($search_ids);
     }
     .timeline-time { color: #888; font-size: 0.9em; }
     .copy-btn { margin-left: 10px; }
+    /* 悬浮搜索按钮样式 */
+    .search-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      padding: 15px;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    
+    /* 搜索框的样式 */
+    .search-container {
+      position: fixed;
+      bottom: 70px;
+      right: 20px;
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 10px;
+      width: 300px;
+      display: none; /* 默认隐藏 */
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+      z-index: 999;
+    }
+    
+    .search-container input {
+      width: 100%;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
@@ -104,16 +138,36 @@ $total_results = count($search_ids);
       </div>
       <?php endwhile; ?>
     </div>
+      <a href="index.php" class="btn btn-link mt-3">返回树洞</a>
   </div>
 
-  <!-- 返回首页按钮，放在页面底部 -->
-  <div class="text-center mt-4">
-    <a href="index.php" class="btn btn-outline-secondary">返回首页</a>
+  <!-- 悬浮搜索按钮 -->
+  <button class="search-btn" id="searchBtn">🔍</button>
+
+  <!-- 搜索框 -->
+  <div class="search-container" id="searchContainer">
+    <form action="search.php" method="get">
+      <input type="text" class="form-control" name="q" placeholder="输入搜索内容或标签" required>
+      <button class="btn btn-primary" type="submit">搜索</button>
+      <button type="button" class="btn btn-outline-danger" id="closeSearch">关闭</button>
+    </form>
   </div>
 
-  <!-- 引入 jQuery -->
+  <!-- 引入 jQuery 与 Bootstrap JS -->
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
-</div>
+  <script>
+  $(document).ready(function() {
+    // 点击搜索按钮，显示搜索框
+    $('#searchBtn').click(function() {
+      $('#searchContainer').fadeIn();
+    });
+
+    // 点击关闭按钮，隐藏搜索框
+    $('#closeSearch').click(function() {
+      $('#searchContainer').fadeOut();
+    });
+  });
+  </script>
 </body>
 </html>
