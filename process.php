@@ -11,6 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         die("消息内容和编辑密码不能为空。");
     }
     
+    // 使用 password_hash() 对编辑密码进行加密处理
+    $encrypted_password = password_hash($edit_password, PASSWORD_DEFAULT);  // 使用默认算法（通常是 bcrypt）
+
     // 图片处理
     $image_path = '';
     if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
@@ -26,9 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $image_path = $new_filename;
     }
     
-    // 插入数据库
+    // 插入数据库，保存加密后的编辑密码
     $stmt = $conn->prepare("INSERT INTO messages (content, image, edit_password) VALUES (?, ?, ?)");
-    $stmt->bind_param("sss", $content, $image_path, $edit_password);
+    $stmt->bind_param("sss", $content, $image_path, $encrypted_password);
     if ($stmt->execute()) {
         header("Location: index.php");
     } else {
