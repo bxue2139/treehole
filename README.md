@@ -813,7 +813,7 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
 </html>
 
 ```
-### 7. share.php  
+### 8. search.php  
 搜索功能
 ```php
 <?php
