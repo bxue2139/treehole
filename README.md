@@ -96,12 +96,12 @@ $messages = $conn->query($sql);
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>树洞 - 匿名留言板</title>
+  <title>TreeHole</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 引入 Bootstrap CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/bootstrap.min.css">
   <style>
-    body { padding-top: 20px; }
+    body { padding-top: 20px; transition: all 0.3s; }
     .message { border-bottom: 1px solid #ddd; padding: 10px 0; }
     .message img { 
         max-width: 100%;     /* 保证图片宽度不超过父容器宽度 */
@@ -111,21 +111,119 @@ $messages = $conn->query($sql);
     }
     .timeline-time { color: #888; font-size: 0.9em; }
     .copy-btn { margin-left: 10px; }
-    /* 分开显示消息编辑区和信息流 */
+    /* 默认的容器宽度 */
     .container { max-width: 800px; }
     .preview { border: 1px solid #ccc; padding: 10px; margin-top: 10px; display: none; }
     
+    /* 悬浮搜索按钮样式 */
+    .search-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      padding: 15px;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    
+    /* 搜索框的样式 */
+    .search-container {
+      position: fixed;
+      bottom: 70px;
+      right: 20px;
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 10px;
+      width: 300px;
+      display: none; /* 默认隐藏 */
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+      z-index: 999;
+    }
+    
+    .search-container input {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
+    /* 宽屏和窄屏切换按钮 */
+    .screen-toggle-btn {
+      position: fixed;
+      top: 10px;
+      right: 100px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      padding: 10px;
+      font-size: 14px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+
+    /* 主题切换按钮 */
+    .theme-toggle-btn {
+      position: fixed;
+      top: 10px;
+      right: 20px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      padding: 10px;
+      font-size: 14px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+
     /* 手机端样式 */
     @media (max-width: 768px) {
         .message img {
             max-width: 100%;
         }
     }
+
+    /* 黑夜主题 */
+    .dark-theme {
+      background-color: #121212;
+      color: white;
+    }
+
+    .dark-theme .card {
+      background-color: #1e1e1e;
+      color: white;
+    }
+
+    .dark-theme .btn-outline-secondary {
+      color: white;
+      border-color: #444;
+    }
+
+    /* 反色主题 */
+    .invert-theme {
+      background-color: black;
+      color: white;
+    }
+
+    .invert-theme .card {
+      background-color: white;
+      color: black;
+    }
+
+    .invert-theme .btn-outline-secondary {
+      color: black;
+      border-color: #ddd;
+    }
   </style>
 </head>
 <body>
 <div class="container">
-  <h2 class="text-center">树洞匿名留言板</h2>
+  <h2 class="text-center">树洞留言板</h2>
+  
   <!-- 消息编辑部分 -->
   <div class="card mb-4">
     <div class="card-header">消息编辑</div>
@@ -174,7 +272,7 @@ $messages = $conn->query($sql);
         <?php endif; ?>
         <div class="mt-2">
           <!-- 复制按钮 -->
-          <button class="btn btn-sm btn-outline-secondary copy-btn" data-content="<?php echo htmlspecialchars($msg['content']); ?>">复制全文</button>
+          <button class="btn btn-sm btn-outline-secondary copy-btn" data-content="<?php echo htmlspecialchars($msg['content']); ?>">复制</button>
           <!-- 分享按钮 -->
           <a href="share.php?id=<?php echo $msg['id']; ?>" class="btn btn-sm btn-outline-info">分享</a>
           <!-- 编辑和删除按钮 -->
@@ -204,46 +302,52 @@ $messages = $conn->query($sql);
   </div>
 </div>
 
+<!-- 宽屏/窄屏切换按钮 -->
+<button class="screen-toggle-btn" id="screenToggle">宽/窄</button>
+
+<!-- 主题切换按钮 -->
+<button class="theme-toggle-btn" id="themeToggle">白/黑</button>
+
+<!-- 悬浮搜索按钮 -->
+<button class="search-btn" id="searchBtn">🔍</button>
+
+<!-- 搜索框 -->
+<div class="search-container" id="searchContainer">
+  <form action="search.php" method="get">
+    <input type="text" class="form-control" name="q" placeholder="输入搜索内容或标签" required>
+    <button class="btn btn-primary" type="submit">搜索</button>
+    <button type="button" class="btn btn-outline-danger" id="closeSearch">关闭</button>
+  </form>
+</div>
+
 <!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
-<!-- 引入 Marked.js 用于 Markdown 预览 -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
-$(document).ready(function(){
-  // 表单支持 Enter 键提交（不换行）
-  $('#messageForm').on('keypress', function(e) {
-    if(e.which == 13 && !e.shiftKey) {
-      e.preventDefault();
-      $('#sendBtn').click();
+$(document).ready(function() {
+  // 宽屏/窄屏切换功能
+  $('#screenToggle').click(function() {
+    if ($('.container').css('max-width') == '800px') {
+      $('.container').css('max-width', '1200px');
+    } else {
+      $('.container').css('max-width', '800px');
     }
   });
-  
-  // 预览按钮功能：将 Markdown 转为 HTML 显示/隐藏预览区
-  $('#previewBtn').click(function(){
-    var content = $('#content').val();
-    var html = marked.parse(content);
-    $('#previewArea').html(html).toggle();
+
+  // 主题切换功能
+  $('#themeToggle').click(function() {
+    $('body').toggleClass('dark-theme');
+    $('body').toggleClass('invert-theme');
   });
-  
-  // 复制按钮功能
-  $('.copy-btn').click(function(){
-    var content = $(this).data('content');
-    navigator.clipboard.writeText(content).then(function(){
-      alert("已复制消息内容到剪贴板");
-    }, function(err){
-      alert("复制失败: " + err);
-    });
+
+  // 点击搜索按钮，显示搜索框
+  $('#searchBtn').click(function() {
+    $('#searchContainer').fadeIn();
   });
-  
-  // 快速跳转功能：跳转到指定消息 ID 的位置
-  $('#jumpBtn').click(function(){
-    var id = $('#jumpId').val();
-    if(id){
-      $('html, body').animate({
-        scrollTop: $('#msg-' + id).offset().top
-      }, 500);
-    }
+
+  // 点击关闭按钮，隐藏搜索框
+  $('#closeSearch').click(function() {
+    $('#searchContainer').fadeOut();
   });
 });
 </script>
@@ -546,7 +650,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 ---
 
 ### 7. share.php  
-实现单条消息分享页面，展示消息详情以及一个分享按钮，当鼠标悬停时显示当前页面链接生成的二维码（调用 Google Chart API 生成二维码）。
+实现单条消息分享页面，展示消息详情以及一个分享按钮，当鼠标悬停时显示当前页面链接生成的二维码。
 
 ```php
 <?php
@@ -584,9 +688,42 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
   <meta charset="UTF-8">
   <title>分享消息 #<?php echo $id; ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- 引入 Bootstrap CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/bootstrap.min.css">
   <style>
+    .search-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      padding: 15px;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    
+    .search-container {
+      position: fixed;
+      bottom: 70px;
+      right: 20px;
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 10px;
+      width: 300px;
+      display: none;
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+      z-index: 999;
+    }
+    
+    .search-container input {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    
+    /* 二维码样式 */
     .qr-code {
       position: absolute;
       display: none;
@@ -595,6 +732,7 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       background: #fff;
       z-index: 1000;
     }
+
     .share-btn {
       position: relative;
     }
@@ -618,14 +756,12 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       </div>
       <?php endif; ?>
       <div class="mt-3">
-        <!-- 复制全文按钮 -->
-        <button class="btn btn-outline-secondary" id="copyFullContentBtn" data-content="<?php echo htmlspecialchars($message['content']); ?>">复制全文</button>
-        <!-- 编辑按钮 -->
-        <a href="edit.php?id=<?php echo $id; ?>" class="btn btn-warning">编辑消息</a>
-        <!-- 分享链接按钮 -->
-        <a href="<?php echo $share_url; ?>" class="btn btn-outline-info">复制分享链接</a>
+        <button class="btn btn-outline-secondary" id="copyFullContentBtn" data-content="<?php echo htmlspecialchars($message['content']); ?>">复制</button>
+        <a href="edit.php?id=<?php echo $id; ?>" class="btn btn-warning">编辑</a>
+        <a href="share.php?id=<?php echo $id; ?>" class="btn btn-outline-info">链接</a>
+        
         <!-- 二维码分享按钮 -->
-        <button class="btn btn-outline-info share-btn" id="qrBtn">二维码分享</button>
+        <button class="btn btn-outline-info share-btn" id="qrBtn">二维码</button>
         <div class="qr-code" id="qrCode">
           <img src="<?php echo $qr_code_url; ?>" alt="二维码">
         </div>
@@ -635,34 +771,224 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
   <a href="index.php" class="btn btn-link mt-3">返回树洞</a>
 </div>
 
-<!-- 引入 jQuery -->
+<!-- 悬浮搜索按钮 -->
+<button class="search-btn" id="searchBtn">🔍</button>
+
+<!-- 搜索框 -->
+<div class="search-container" id="searchContainer">
+  <form action="search.php" method="get">
+    <input type="text" class="form-control" name="q" placeholder="输入搜索内容或标签" required>
+    <button class="btn btn-primary" type="submit">搜索</button>
+    <button type="button" class="btn btn-outline-danger" id="closeSearch">关闭</button>
+  </form>
+</div>
+
+<!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-$(document).ready(function(){
-  // 复制全文功能
-  $('#copyFullContentBtn').click(function(){
-    var content = $(this).data('content');
-    navigator.clipboard.writeText(content).then(function(){
-      alert("已复制消息内容到剪贴板");
-    }, function(err){
-      alert("复制失败: " + err);
+  $(document).ready(function() {
+    // 点击搜索按钮，显示搜索框
+    $('#searchBtn').click(function() {
+      $('#searchContainer').fadeIn();
+    });
+
+    // 点击关闭按钮，隐藏搜索框
+    $('#closeSearch').click(function() {
+      $('#searchContainer').fadeOut();
+    });
+
+    // 显示二维码，当鼠标悬停在二维码分享按钮上时显示二维码
+    $('#qrBtn').hover(function(){
+      $('#qrCode').css({
+        top: $(this).position().top + $(this).outerHeight() + 5,
+        left: $(this).position().left
+      }).fadeIn();
+    }, function(){
+      $('#qrCode').fadeOut();
     });
   });
-
-  // 显示二维码，当鼠标悬停在二维码分享按钮上时显示二维码
-  $('#qrBtn').hover(function(){
-    $('#qrCode').css({
-      top: $(this).position().top + $(this).outerHeight() + 5,
-      left: $(this).position().left
-    }).fadeIn();
-  }, function(){
-    $('#qrCode').fadeOut();
-  });
-});
 </script>
 </body>
 </html>
 
+```
+### 7. share.php  
+搜索功能
+```php
+<?php
+// search.php
+date_default_timezone_set('Asia/Shanghai');
+require_once 'config.php';
+require_once 'parsedown.php';
+$Parsedown = new Parsedown();
+
+$q = isset($_GET['q']) ? trim($_GET['q']) : '';
+if ($q == '') {
+    die("请输入搜索内容。");
+}
+
+// 搜索消息内容或标签（带 # 的标签）
+$sql = "SELECT * FROM messages WHERE content LIKE ? OR content LIKE ?";
+$stmt = $conn->prepare($sql);
+$searchTerm = "%" . $q . "%";
+$searchTag = "%" . '#' . $q . "%";
+$stmt->bind_param("ss", $searchTerm, $searchTag);
+$stmt->execute();
+$messages = $stmt->get_result();
+
+// 获取搜索到的消息 ID 列表
+$search_ids = [];
+while ($row = $messages->fetch_assoc()) {
+    $search_ids[] = $row['id'];
+}
+
+// 获取消息总数
+$total_results = count($search_ids);
+?>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>搜索结果</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/bootstrap.min.css">
+  <style>
+    .search-ids { margin-bottom: 20px; }
+    .message { border-bottom: 1px solid #ddd; padding: 10px 0; }
+    .message img { 
+        max-width: 100%; 
+        height: auto;
+        display: block;
+        margin: 0 auto;
+    }
+    .timeline-time { color: #888; font-size: 0.9em; }
+    .copy-btn { margin-left: 10px; }
+    /* 悬浮搜索按钮样式 */
+    .search-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      padding: 15px;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    
+    /* 搜索框的样式 */
+    .search-container {
+      position: fixed;
+      bottom: 70px;
+      right: 20px;
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 10px;
+      width: 300px;
+      display: none; /* 默认隐藏 */
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+      z-index: 999;
+    }
+    
+    .search-container input {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+<div class="container mt-4">
+  <h3>搜索结果：<?php echo htmlspecialchars($q); ?></h3>
+  
+  <!-- 显示搜索到的条数并列出ID -->
+  <?php if ($total_results > 0): ?>
+    <div class="search-ids">
+      <p>搜索到 <?php echo $total_results; ?> 条消息，点击ID跳转到对应消息：</p>
+      <div>
+        <?php foreach ($search_ids as $id): ?>
+          <a href="#msg-<?php echo $id; ?>" class="btn btn-outline-primary btn-sm"><?php echo $id; ?></a>
+        <?php endforeach; ?>
+      </div>
+    </div>
+  <?php else: ?>
+    <p>没有找到相关的消息。</p>
+  <?php endif; ?>
+
+  <!-- 搜索结果展示 -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <?php 
+      // 查询所有符合条件的消息，按时间排序
+      $sql = "SELECT * FROM messages WHERE content LIKE ? OR content LIKE ? ORDER BY post_time DESC";
+      $stmt = $conn->prepare($sql);
+      $stmt->bind_param("ss", $searchTerm, $searchTag);
+      $stmt->execute();
+      $messages = $stmt->get_result();
+
+      while ($msg = $messages->fetch_assoc()): ?>
+      <div class="message" id="msg-<?php echo $msg['id']; ?>">
+        <div>
+          <strong>#<?php echo $msg['id']; ?></strong>
+          <span class="timeline-time"><?php echo date("Y-m-d H:i:s", strtotime($msg['post_time'])); ?></span>
+        </div>
+        <div class="content">
+          <?php 
+            // 使用 Parsedown 渲染 Markdown 为 HTML
+            $htmlContent = $Parsedown->text($msg['content']);
+            echo $htmlContent;
+          ?>
+        </div>
+        <?php if ($msg['image']): ?>
+        <div class="mt-2">
+          <img src="<?php echo $msg['image']; ?>" alt="上传图片">
+        </div>
+        <?php endif; ?>
+        <div class="mt-2">
+          <button class="btn btn-sm btn-outline-secondary copy-btn" data-content="<?php echo htmlspecialchars($msg['content']); ?>">复制全文</button>
+          <a href="share.php?id=<?php echo $msg['id']; ?>" class="btn btn-sm btn-outline-info">分享</a>
+          <a href="edit.php?id=<?php echo $msg['id']; ?>" class="btn btn-sm btn-outline-warning">编辑</a>
+          <a href="delete.php?id=<?php echo $msg['id']; ?>" class="btn btn-sm btn-outline-danger">删除</a>
+        </div>
+      </div>
+      <?php endwhile; ?>
+    </div>
+      <a href="index.php" class="btn btn-link mt-3">返回树洞</a>
+  </div>
+
+  <!-- 悬浮搜索按钮 -->
+  <button class="search-btn" id="searchBtn">🔍</button>
+
+  <!-- 搜索框 -->
+  <div class="search-container" id="searchContainer">
+    <form action="search.php" method="get">
+      <input type="text" class="form-control" name="q" placeholder="输入搜索内容或标签" required>
+      <button class="btn btn-primary" type="submit">搜索</button>
+      <button type="button" class="btn btn-outline-danger" id="closeSearch">关闭</button>
+    </form>
+  </div>
+
+  <!-- 引入 jQuery 与 Bootstrap JS -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+  $(document).ready(function() {
+    // 点击搜索按钮，显示搜索框
+    $('#searchBtn').click(function() {
+      $('#searchContainer').fadeIn();
+    });
+
+    // 点击关闭按钮，隐藏搜索框
+    $('#closeSearch').click(function() {
+      $('#searchContainer').fadeOut();
+    });
+  });
+  </script>
+</body>
+</html>
 
 ```
 
@@ -681,6 +1007,7 @@ $(document).ready(function(){
 7. **支持键盘 Enter 键提交**：在编辑区按 Enter 键（非换行）即可提交消息。  
 8. **图片存放在 img 文件夹**：上传的图片存放到项目目录下的 img 文件夹中。  
 9. **美观大气的页面样式**：使用 Bootstrap 实现响应式布局，适应手机和电脑端访问。  
-10. **显示数据库 ID、快速跳转及分页**：每条消息前显示 ID，并提供输入框实现跳转，同时支持每页 10 条消息的翻页。  
+10. **显示数据库 ID、快速跳转及分页**：每条消息前显示 ID，并提供输入框实现跳转，同时支持每页 10 条消息的翻页。
+11. **搜索功能**
 
 根据实际需求可进一步扩展和完善，比如增加 CSRF 防护、密码加密存储、输入过滤等安全措施。希望这个示例能给你提供一个参考实现！
