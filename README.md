@@ -43,8 +43,6 @@ CREATE TABLE `messages` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-ALTER TABLE messages MODIFY edit_password VARCHAR(255);
-
 ```
 
 ---
@@ -102,10 +100,10 @@ $messages = $conn->query($sql);
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>留言板</title>
+  <title>Tree-hole</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 引入 Bootstrap CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/bootstrap.min.css">
   <style>
     body { padding-top: 20px; }
     .message { border-bottom: 1px solid #ddd; padding: 10px 0; }
@@ -154,7 +152,7 @@ $messages = $conn->query($sql);
 </head>
 <body>
 <div class="container">
-  <h2 class="text-center">留言板</h2>
+  <h2 class="text-center">树洞-留言板</h2>
   <!-- 消息编辑部分 -->
   <div class="card mb-4">
     <div class="card-header">消息编辑</div>
@@ -181,7 +179,7 @@ $messages = $conn->query($sql);
   
   <!-- 树洞信息流部分 -->
   <div class="card mb-4">
-    <div class="card-header">树洞信息流</div>
+    <div class="card-header">信息流</div>
     <div class="card-body">
       <?php while($msg = $messages->fetch_assoc()): ?>
       <div class="message" id="msg-<?php echo $msg['id']; ?>">
@@ -298,7 +296,6 @@ $(document).ready(function(){
 </script>
 </body>
 </html>
-
 
 ```
 
