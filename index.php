@@ -25,19 +25,14 @@ $messages = $conn->query($sql);
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>树洞 - 匿名留言板</title>
+  <title>留言板</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 引入 Bootstrap CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css">
   <style>
     body { padding-top: 20px; }
     .message { border-bottom: 1px solid #ddd; padding: 10px 0; }
-    .message img { 
-        max-width: 100%;     /* 保证图片宽度不超过父容器宽度 */
-        height: auto;       /* 保持图片的纵横比 */
-        display: block;     /* 图片显示为块级元素，避免有空白 */
-        margin: 0 auto;     /* 可选：使图片居中显示 */
-    }
+    .message img { max-width: 100%; height: auto; }
     .timeline-time { color: #888; font-size: 0.9em; }
     .copy-btn { margin-left: 10px; }
     /* 分开显示消息编辑区和信息流 */
@@ -78,19 +73,11 @@ $messages = $conn->query($sql);
       width: 100%;
       margin-bottom: 10px;
     }
-
-    /* 手机端样式 */
-    @media (max-width: 768px) {
-        .message img {
-            max-width: 100%;
-        }
-    }
   </style>
 </head>
 <body>
 <div class="container">
-  <h2 class="text-center">树洞匿名留言板</h2>
-  
+  <h2 class="text-center">留言板</h2>
   <!-- 消息编辑部分 -->
   <div class="card mb-4">
     <div class="card-header">消息编辑</div>
@@ -184,8 +171,43 @@ $messages = $conn->query($sql);
 <!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- 引入 Marked.js 用于 Markdown 预览 -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
-$(document).ready(function() {
+$(document).ready(function(){
+  // 表单支持 Enter 键提交（不换行）
+  $('#messageForm').on('keypress', function(e) {
+    if(e.which == 13 && !e.shiftKey) {
+      e.preventDefault();
+      $('#sendBtn').click();
+    }
+  });
+  
+  // 预览按钮功能：将 Markdown 转为 HTML 显示/隐藏预览区
+  $('#previewBtn').click(function(){
+    var content = $('#content').val();
+    var html = marked.parse(content);
+    $('#previewArea').html(html).toggle();
+  });
+  
+  // 复制按钮功能
+  $('.copy-btn').click(function(){
+    var content = $(this).data('content');
+    navigator.clipboard.writeText(content).then(function(){
+      alert("已复制消息内容到剪贴板");
+    }, function(err){
+      alert("复制失败: " + err);
+    });
+  });
+  
+  // 快速跳转功能：点击跳转按钮，打开指定消息的分享页面
+  $('#jumpBtn').click(function(){
+    var id = $('#jumpId').val();
+    if(id){
+      window.location.href = 'share.php?id=' + id;
+    }
+  });
+
   // 点击搜索按钮，显示搜索框
   $('#searchBtn').click(function() {
     $('#searchContainer').fadeIn();
