@@ -96,22 +96,17 @@ $messages = $conn->query($sql);
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>TreeHole</title>
+  <title>留言板</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 引入 Bootstrap CSS -->
-  <link rel="stylesheet" href="/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css">
   <style>
-    body { padding-top: 20px; transition: all 0.3s; }
+    body { padding-top: 20px; }
     .message { border-bottom: 1px solid #ddd; padding: 10px 0; }
-    .message img { 
-        max-width: 100%;     /* 保证图片宽度不超过父容器宽度 */
-        height: auto;       /* 保持图片的纵横比 */
-        display: block;     /* 图片显示为块级元素，避免有空白 */
-        margin: 0 auto;     /* 可选：使图片居中显示 */
-    }
+    .message img { max-width: 100%; height: auto; }
     .timeline-time { color: #888; font-size: 0.9em; }
     .copy-btn { margin-left: 10px; }
-    /* 默认的容器宽度 */
+    /* 分开显示消息编辑区和信息流 */
     .container { max-width: 800px; }
     .preview { border: 1px solid #ccc; padding: 10px; margin-top: 10px; display: none; }
     
@@ -149,81 +144,11 @@ $messages = $conn->query($sql);
       width: 100%;
       margin-bottom: 10px;
     }
-
-    /* 宽屏和窄屏切换按钮 */
-    .screen-toggle-btn {
-      position: fixed;
-      top: 10px;
-      right: 100px;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      padding: 10px;
-      font-size: 14px;
-      cursor: pointer;
-      z-index: 1000;
-    }
-
-    /* 主题切换按钮 */
-    .theme-toggle-btn {
-      position: fixed;
-      top: 10px;
-      right: 20px;
-      background-color: #28a745;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      padding: 10px;
-      font-size: 14px;
-      cursor: pointer;
-      z-index: 1000;
-    }
-
-    /* 手机端样式 */
-    @media (max-width: 768px) {
-        .message img {
-            max-width: 100%;
-        }
-    }
-
-    /* 黑夜主题 */
-    .dark-theme {
-      background-color: #121212;
-      color: white;
-    }
-
-    .dark-theme .card {
-      background-color: #1e1e1e;
-      color: white;
-    }
-
-    .dark-theme .btn-outline-secondary {
-      color: white;
-      border-color: #444;
-    }
-
-    /* 反色主题 */
-    .invert-theme {
-      background-color: black;
-      color: white;
-    }
-
-    .invert-theme .card {
-      background-color: white;
-      color: black;
-    }
-
-    .invert-theme .btn-outline-secondary {
-      color: black;
-      border-color: #ddd;
-    }
   </style>
 </head>
 <body>
 <div class="container">
-  <h2 class="text-center">树洞留言板</h2>
-  
+  <h2 class="text-center">留言板</h2>
   <!-- 消息编辑部分 -->
   <div class="card mb-4">
     <div class="card-header">消息编辑</div>
@@ -302,12 +227,6 @@ $messages = $conn->query($sql);
   </div>
 </div>
 
-<!-- 宽屏/窄屏切换按钮 -->
-<button class="screen-toggle-btn" id="screenToggle">宽/窄</button>
-
-<!-- 主题切换按钮 -->
-<button class="theme-toggle-btn" id="themeToggle">白/黑</button>
-
 <!-- 悬浮搜索按钮 -->
 <button class="search-btn" id="searchBtn">🔍</button>
 
@@ -323,21 +242,41 @@ $messages = $conn->query($sql);
 <!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- 引入 Marked.js 用于 Markdown 预览 -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
-$(document).ready(function() {
-  // 宽屏/窄屏切换功能
-  $('#screenToggle').click(function() {
-    if ($('.container').css('max-width') == '800px') {
-      $('.container').css('max-width', '1200px');
-    } else {
-      $('.container').css('max-width', '800px');
+$(document).ready(function(){
+  // 表单支持 Enter 键提交（不换行）
+  $('#messageForm').on('keypress', function(e) {
+    if(e.which == 13 && !e.shiftKey) {
+      e.preventDefault();
+      $('#sendBtn').click();
     }
   });
-
-  // 主题切换功能
-  $('#themeToggle').click(function() {
-    $('body').toggleClass('dark-theme');
-    $('body').toggleClass('invert-theme');
+  
+  // 预览按钮功能：将 Markdown 转为 HTML 显示/隐藏预览区
+  $('#previewBtn').click(function(){
+    var content = $('#content').val();
+    var html = marked.parse(content);
+    $('#previewArea').html(html).toggle();
+  });
+  
+  // 复制按钮功能
+  $('.copy-btn').click(function(){
+    var content = $(this).data('content');
+    navigator.clipboard.writeText(content).then(function(){
+      alert("已复制消息内容到剪贴板");
+    }, function(err){
+      alert("复制失败: " + err);
+    });
+  });
+  
+  // 快速跳转功能：点击跳转按钮，打开指定消息的分享页面
+  $('#jumpBtn').click(function(){
+    var id = $('#jumpId').val();
+    if(id){
+      window.location.href = 'share.php?id=' + id;
+    }
   });
 
   // 点击搜索按钮，显示搜索框
@@ -353,6 +292,7 @@ $(document).ready(function() {
 </script>
 </body>
 </html>
+
 
 ```
 
