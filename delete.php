@@ -25,8 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $_SESSION['del_verified'] = array();
     }
     if (isset($_POST['verify'])) {
+        // 验证密码：使用 password_verify() 验证密码是否正确
         $input_password = trim($_POST['edit_password']);
-        if ($input_password !== $message['edit_password']) {
+        if (!password_verify($input_password, $message['edit_password'])) {
             $error = "密码错误。";
         } else {
             $_SESSION['del_verified'][$id] = true;
