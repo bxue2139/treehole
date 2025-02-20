@@ -42,28 +42,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($new_content == '') {
                 $error = "消息内容不能为空。";
             } else {
-                $image_path = $message['image'];
+                $file_path = $message['image'];
                 if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
-                    $allowed_types = ['image/jpeg', 'image/png', 'image/gif'];
-                    if (!in_array($_FILES['image']['type'], $allowed_types)) {
-                        $error = "只支持 JPEG, PNG, GIF 格式的图片。";
-                    } else {
+                    $allowed_image_types = ['image/jpeg', 'image/png', 'image/gif'];
+                    $allowed_video_types = ['video/mp4'];
+
+                    // 处理文件上传
+                    if (in_array($_FILES['image']['type'], $allowed_image_types)) {
+                        // 处理图片文件
                         // 若存在旧图片则删除
-                        if ($image_path && file_exists($image_path)) {
-                            unlink($image_path);
+                        if ($file_path && file_exists($file_path)) {
+                            unlink($file_path);
                         }
                         $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
                         $new_filename = 'img/' . time() . '_' . rand(1000,9999) . '.' . $ext;
                         if (!move_uploaded_file($_FILES['image']['tmp_name'], $new_filename)) {
                             $error = "图片上传失败。";
                         } else {
-                            $image_path = $new_filename;
+                            $file_path = $new_filename;
                         }
+                    } elseif (in_array($_FILES['image']['type'], $allowed_video_types)) {
+                        // 处理视频文件
+                        if ($file_path && file_exists($file_path)) {
+                            unlink($file_path);
+                        }
+                        $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
+                        $new_filename = 'video/' . time() . '_' . rand(1000,9999) . '.' . $ext;
+                        if (!move_uploaded_file($_FILES['image']['tmp_name'], $new_filename)) {
+                            $error = "视频上传失败。";
+                        } else {
+                            $file_path = $new_filename;
+                        }
+                    } else {
+                        $error = "只支持 JPEG, PNG, GIF 格式的图片和 MP4 格式的视频。";
                     }
                 }
+
                 if (!isset($error)) {
-                    $stmt = $conn->prepare("UPDATE messages SET content = ?, image = ? WHERE id = ?");
-                    $stmt->bind_param("ssi", $new_content, $image_path, $id);
+                    // 设置当前时间作为最后修改时间
+                    $current_time = date("Y-m-d H:i:s");
+                    $stmt = $conn->prepare("UPDATE messages SET content = ?, image = ?, last_edit_time = ? WHERE id = ?");
+                    $stmt->bind_param("sssi", $new_content, $file_path, $current_time, $id);
                     if ($stmt->execute()) {
                         unset($_SESSION['verified'][$id]);
                         header("Location: index.php");
@@ -111,21 +130,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
       <label for="content" class="form-label">消息内容 (支持 Markdown)</label>
       <textarea class="form-control" id="content" name="content" rows="4" required><?php echo htmlspecialchars($message['content']); ?></textarea>
     </div>
-    <?php if($message['image']): ?>
-    <div class="mb-3">
-      <label class="form-label">当前图片：</label><br>
-      <img src="<?php echo $message['image']; ?>" alt="当前图片" style="max-width:200px;">
-    </div>
+    
+    <?php if ($message['image'] && (strpos($message['image'], '.mp4') !== false)): ?>
+      <div class="mb-3">
+        <label class="form-label">当前视频：</label><br>
+        <video controls style="max-width: 200px;">
+          <source src="<?php echo $message['image']; ?>" type="video/mp4">
+          您的浏览器不支持播放视频。
+        </video>
+      </div>
+    <?php elseif ($message['image']): ?>
+      <div class="mb-3">
+        <label class="form-label">当前图片：</label><br>
+        <img src="<?php echo $message['image']; ?>" alt="当前图片" style="max-width:200px;">
+      </div>
     <?php endif; ?>
+
     <div class="mb-3">
-      <label for="image" class="form-label">更换图片 (可选)：</label>
-      <input class="form-control" type="file" id="image" name="image" accept="image/*">
+      <label for="image" class="form-label">更换图片或视频 (可选)：</label>
+      <input class="form-control" type="file" id="image" name="image" accept="image/*,video/mp4">
     </div>
+
     <button type="submit" name="update" class="btn btn-success">保存更新</button>
     <a href="index.php" class="btn btn-secondary">取消</a>
   </form>
   <?php endif; ?>
 </div>
+
 <!-- 引入 Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
