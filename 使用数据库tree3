@@ -3,12 +3,18 @@ https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css
 
 sql
 
+https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css
+
+
 CREATE TABLE `messages` (
   `id` INT(11) NOT NULL AUTO_INCREMENT,
   `content` TEXT NOT NULL,
   `image` VARCHAR(255) DEFAULT NULL,
   `post_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_edit_time` DATETIME DEFAULT NULL,
   `edit_password` VARCHAR(255) NOT NULL,
+  `ip_address` VARCHAR(45) DEFAULT NULL,
+  `device_info` VARCHAR(255) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
