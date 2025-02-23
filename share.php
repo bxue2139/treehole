@@ -5,12 +5,13 @@ require_once 'config.php';
 require_once 'parsedown.php';
 $Parsedown = new Parsedown();
 
+// 获取主贴ID
 $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 if ($id <= 0) {
     die("无效的消息ID。");
 }
 
-// 获取该消息数据
+// 获取该消息
 $stmt = $conn->prepare("SELECT * FROM messages WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
@@ -21,11 +22,17 @@ if ($result->num_rows == 0) {
 $message = $result->fetch_assoc();
 $stmt->close();
 
-// 构造分享链接（指向 share.php 并带上该消息ID）
-$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
-$share_url = $protocol . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . "/share.php?id=" . $id;
-// 使用 QRServer API 生成二维码
-$qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" . urlencode($share_url);
+// 生成分享链接
+$protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+$share_url  = $protocol . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . "/share.php?id=" . $id;
+$qr_code_url= "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" . urlencode($share_url);
+
+// 读取该消息下的所有评论
+$stmt_c = $conn->prepare("SELECT * FROM comments WHERE message_id = ? ORDER BY post_time ASC");
+$stmt_c->bind_param("i", $id);
+$stmt_c->execute();
+$comments_result = $stmt_c->get_result();
+$stmt_c->close();
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -34,7 +41,7 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
   <title>分享消息 #<?php echo $id; ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="/bootstrap.min.css">
-  <!-- 引入 html2canvas 库 -->
+  <!-- 引入 html2canvas 库（用于截图） -->
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
   <style>
     .search-btn {
@@ -50,7 +57,6 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       cursor: pointer;
       z-index: 1000;
     }
-    
     .search-container {
       position: fixed;
       bottom: 70px;
@@ -64,13 +70,10 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
       z-index: 999;
     }
-    
     .search-container input {
       width: 100%;
       margin-bottom: 10px;
     }
-    
-    /* 二维码样式（使用 fixed 定位，确保在视窗中显示） */
     .qr-code {
       position: fixed;
       display: none;
@@ -79,12 +82,9 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       background: #fff;
       z-index: 1000;
     }
-
     .share-btn {
       position: relative;
     }
-
-    /* 截图加载提示样式 */
     .screenshot-loading {
       position: fixed;
       top: 50%;
@@ -97,8 +97,6 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       z-index: 1001;
       display: none;
     }
-
-    /* 优化功能按钮样式：调整大小、间距，使其适应手机和电脑屏幕 */
     .function-buttons {
       display: flex;
       flex-wrap: nowrap;
@@ -115,28 +113,21 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       padding: 6px 8px;
       text-align: center;
     }
-    /* 手机屏幕优化：若屏幕较窄允许换行 */
     @media (max-width: 576px) {
       .function-buttons {
         flex-wrap: wrap;
       }
     }
-
-    /* 调整消息卡片的宽度，确保响应式显示 */
     .card {
       max-width: 100%;
       margin: 0 auto;
     }
-
-    /* 优化消息中的图片显示，确保图片不会超出消息卡片边界 */
     .card img {
       max-width: 100%;
       height: auto;
       display: block;
       margin: 0 auto;
     }
-    
-    /* 如内容区中有 Markdown 渲染的图片，则允许自动适应 */
     .content img {
       width: auto;
       max-width: 100%;
@@ -144,43 +135,68 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       display: block;
       margin: 0 auto;
     }
+    /* 评论区样式 */
+    .comment {
+      border: 1px solid #eee;
+      padding: 10px;
+      margin-bottom: 10px;
+      position: relative;
+    }
+    .comment .comment-actions {
+      display: none;
+      position: absolute;
+      bottom: 5px;
+      right: 10px;
+    }
+    .comment:hover .comment-actions,
+    .comment:focus-within .comment-actions {
+      display: block;
+    }
+    .comment-time {
+      font-size: 0.9em;
+      color: #666;
+    }
   </style>
 </head>
 <body>
 <div class="container mt-4">
+
   <h3>分享消息 #<?php echo $id; ?></h3>
-  <div class="card">
+
+  <!-- 主贴卡片，下面截图功能只会截取这里，不包含评论 -->
+  <div class="card" id="mainMessageCard">
     <div class="card-body">
       <div class="mb-2">
         <strong>#<?php echo $message['id']; ?></strong>
-        <span class="text-muted"><?php echo date("Y-m-d H:i:s", strtotime($message['post_time'])); ?></span>
-        
-        <!-- 如果存在最后修改时间，则显示 -->
+        <span class="text-muted">
+          <?php echo date("Y-m-d H:i:s", strtotime($message['post_time'])); ?>
+        </span>
         <?php if (!empty($message['last_edit_time'])): ?>
-          <span class="text-muted">(最后修改于 <?php echo date("Y-m-d H:i:s", strtotime($message['last_edit_time'])); ?>)</span>
+          <span class="text-muted">
+            (最后修改于 <?php echo date("Y-m-d H:i:s", strtotime($message['last_edit_time'])); ?>)
+          </span>
         <?php endif; ?>
-        
       </div>
       <div class="content">
+        <!-- 使用 Parsedown 解析Markdown -->
         <?php echo $Parsedown->text($message['content']); ?>
       </div>
       <?php 
-      // 检测消息内容中的 YouTube 视频链接，并以嵌入形式显示（支持多个视频）
+      // 如果内容中包含 YouTube 链接
       $pattern = '/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/';
       if (preg_match_all($pattern, $message['content'], $matches)) {
           foreach ($matches[1] as $videoId) {
               echo '<div class="ratio ratio-16x9 mb-3">';
-              echo '<iframe src="https://www.youtube.com/embed/'.$videoId.'" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+              echo '<iframe src="https://www.youtube.com/embed/'.$videoId.'" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
               echo '</div>';
           }
       }
       ?>
-      
-      <!-- 如果消息包含图片或视频 -->
+      <!-- 如果有图片或视频 -->
       <?php if($message['image']): ?>
         <?php 
           $ext = strtolower(pathinfo($message['image'], PATHINFO_EXTENSION));
-          if($ext === 'mp4'){
+          if ($ext === 'mp4') {
             echo '<video controls style="max-width:100%; height:auto;">
                     <source src="'.$message['image'].'" type="video/mp4">
                     您的浏览器不支持视频播放。
@@ -191,6 +207,7 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
         ?>
       <?php endif; ?>
 
+      <!-- 主贴功能按钮 -->
       <div class="function-buttons mt-3">
         <button class="btn btn-outline-secondary" id="copyFullContentBtn" data-content="<?php echo htmlspecialchars($message['content']); ?>">复制</button>
         <a href="edit.php?id=<?php echo $id; ?>" class="btn btn-warning">编辑</a>
@@ -204,7 +221,76 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       </div>
     </div>
   </div>
-  <a href="index.php" class="btn btn-link mt-3">返回树洞</a>
+
+  <!-- 评论列表（不在上述card里，所以不会被截图功能截进去） -->
+  <hr>
+  <h5>评论区</h5>
+  <?php if ($comments_result->num_rows > 0): ?>
+    <?php while($cmt = $comments_result->fetch_assoc()): ?>
+      <div class="comment">
+        <div>
+          <strong>评论 #<?php echo $cmt['id']; ?></strong>
+          <span class="comment-time">
+            发表于：<?php echo date("Y-m-d H:i:s", strtotime($cmt['post_time'])); ?>
+            <?php if (!empty($cmt['last_edit_time'])): ?>
+              （最后修改：<?php echo date("Y-m-d H:i:s", strtotime($cmt['last_edit_time'])); ?>）
+            <?php endif; ?>
+          </span>
+        </div>
+        <div class="mt-2">
+          <!-- 评论内容解析为HTML -->
+          <?php echo $Parsedown->text($cmt['content']); ?>
+        </div>
+        <!-- 如果该评论有图片或视频 -->
+        <?php if($cmt['image']): ?>
+          <?php 
+            $c_ext = strtolower(pathinfo($cmt['image'], PATHINFO_EXTENSION));
+            if ($c_ext === 'mp4') {
+              echo '<video controls style="max-width:100%; height:auto;">
+                      <source src="'.$cmt['image'].'" type="video/mp4">
+                      您的浏览器不支持视频播放。
+                    </video>';
+            } else {
+              echo '<img src="'.$cmt['image'].'" alt="评论图片" style="max-width:100%; height:auto;">';
+            }
+          ?>
+        <?php endif; ?>
+        <div class="comment-actions">
+          <a href="comment_edit.php?id=<?php echo $cmt['id']; ?>" class="btn btn-sm btn-outline-warning">编辑</a>
+          <a href="comment_delete.php?id=<?php echo $cmt['id']; ?>" class="btn btn-sm btn-outline-danger">删除</a>
+        </div>
+      </div>
+    <?php endwhile; ?>
+  <?php else: ?>
+    <p>还没有任何评论，快来抢沙发~</p>
+  <?php endif; ?>
+
+  <!-- 添加新评论的表单 -->
+  <hr>
+  <h6>添加新评论</h6>
+  <form action="comment_process.php" method="post" enctype="multipart/form-data">
+    <!-- 隐藏域传主贴ID -->
+    <input type="hidden" name="message_id" value="<?php echo $id; ?>">
+
+    <div class="mb-3">
+      <label for="comment_content" class="form-label">评论内容 (支持 Markdown)：</label>
+      <textarea class="form-control" id="comment_content" name="content" rows="3" required></textarea>
+    </div>
+    <div class="mb-3">
+      <label for="comment_image" class="form-label">上传图片或视频 (可选)：</label>
+      <input class="form-control" type="file" id="comment_image" name="image" accept="image/*,video/mp4">
+    </div>
+    <div class="mb-3">
+      <label for="comment_edit_password" class="form-label">编辑密码 (用于后续编辑或删除)：</label>
+      <input type="password" class="form-control" id="comment_edit_password" name="edit_password" placeholder="设置编辑密码" required>
+    </div>
+    <button type="submit" class="btn btn-primary">提交评论</button>
+  </form>
+
+  <!-- 返回首页 -->
+  <div class="mt-3">
+    <a href="index.php" class="btn btn-link">返回树洞</a>
+  </div>
 </div>
 
 <!-- 截图加载提示 -->
@@ -224,35 +310,34 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
 
 <!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/bootstrap.bundle.min.js"></script>
 <script>
   $(document).ready(function() {
-    // 点击搜索按钮，显示搜索框
+    // 搜索框
     $('#searchBtn').click(function() {
       $('#searchContainer').fadeIn();
     });
-
-    // 点击关闭按钮，隐藏搜索框
     $('#closeSearch').click(function() {
       $('#searchContainer').fadeOut();
     });
 
-    // 显示二维码：鼠标悬停时根据按钮位置及视窗边界调整二维码的位置
+    // 二维码按钮
     $('#qrBtn').hover(function(){
       var buttonOffset = $(this).offset();
-      var scrollTop = $(window).scrollTop();
-      var scrollLeft = $(window).scrollLeft();
-      var buttonTop = buttonOffset.top - scrollTop;
-      var buttonLeft = buttonOffset.left - scrollLeft;
-      var qrCode = $('#qrCode');
-      // 临时显示以获取尺寸
+      var scrollTop    = $(window).scrollTop();
+      var scrollLeft   = $(window).scrollLeft();
+      var buttonTop    = buttonOffset.top - scrollTop;
+      var buttonLeft   = buttonOffset.left - scrollLeft;
+      var qrCode       = $('#qrCode');
+
       qrCode.css('display', 'block');
-      var qrWidth = qrCode.outerWidth();
+      var qrWidth  = qrCode.outerWidth();
       var qrHeight = qrCode.outerHeight();
       qrCode.hide();
-      var windowWidth = $(window).width();
+
+      var windowWidth  = $(window).width();
       var windowHeight = $(window).height();
-      var top = buttonTop + $(this).outerHeight() + 5;
+      var top  = buttonTop + $(this).outerHeight() + 5;
       var left = buttonLeft;
       if (left + qrWidth > windowWidth) {
         left = windowWidth - qrWidth - 10;
@@ -265,58 +350,46 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       $('#qrCode').fadeOut();
     });
 
-    // 处理复制全文按钮点击事件
+    // 复制消息全文
     $('#copyFullContentBtn').on('click', function() {
       const content = $(this).attr('data-content');
       navigator.clipboard.writeText(content)
-        .then(() => {
-          alert('内容已成功复制到剪贴板！');
-        })
-        .catch(err => {
-          console.error('无法复制内容：', err);
-          alert('复制失败，请检查权限或使用其他方式！');
-        });
+        .then(() => { alert('内容已成功复制到剪贴板！'); })
+        .catch(err => { alert('复制失败，请检查权限或浏览器兼容性。'); });
     });
 
-    // 处理复制链接按钮点击事件（复制当前页面链接）
+    // 复制链接（当前页面URL）
     $('#copyLinkBtn').on('click', function() {
       const currentUrl = window.location.href;
       navigator.clipboard.writeText(currentUrl)
-        .then(() => {
-          alert('链接已成功复制到剪贴板！');
-        })
-        .catch(err => {
-          console.error('复制链接失败：', err);
-          alert('复制链接失败，请检查权限或使用其他方式！');
-        });
+        .then(() => { alert('链接已成功复制到剪贴板！'); })
+        .catch(err => { alert('复制链接失败，请检查权限或浏览器兼容性。'); });
     });
 
-    // 封装下载图片的函数，参数 scale 控制生成图片的分辨率
+    // 下载截图
     function downloadImage(scale, label) {
-      const originalCardElement = document.querySelector('.card');
-      // 克隆卡片元素
+      const originalCardElement = document.querySelector('.card'); // 只截主贴
+      // 克隆一份卡片
       const clone = originalCardElement.cloneNode(true);
-      
-      // 修改克隆元素样式，限制宽度并确保文字自动换行
-      clone.style.width = 'auto';
-      clone.style.maxWidth = '500px'; // 限制截图宽度，可根据需求调整
-      clone.style.boxSizing = 'border-box';
-      clone.style.padding = '20px';
-      
-      // 确保内容区文字换行
+
+      clone.style.width      = 'auto';
+      clone.style.maxWidth   = '500px'; 
+      clone.style.boxSizing  = 'border-box';
+      clone.style.padding    = '20px';
+
       var contentElement = clone.querySelector('.content');
       if (contentElement) {
           contentElement.style.whiteSpace = 'normal';
-          contentElement.style.wordWrap = 'break-word';
+          contentElement.style.wordWrap   = 'break-word';
       }
-      
-      // 从克隆中移除包含功能按钮的区域（.function-buttons 部分）
+
+      // 移除功能按钮区域，避免多余元素出现在截图
       const btnDiv = clone.querySelector('.function-buttons');
       if (btnDiv) {
         btnDiv.remove();
       }
-      
-      // 将克隆元素放入一个临时容器中，并隐藏该容器
+
+      // 放到临时容器隐藏
       const tempContainer = document.createElement('div');
       tempContainer.style.position = 'absolute';
       tempContainer.style.top = '-9999px';
@@ -325,43 +398,33 @@ $qr_code_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" 
       document.body.appendChild(tempContainer);
 
       const loadingElement = document.getElementById('screenshotLoading');
-      // 显示加载提示
       loadingElement.style.display = 'block';
 
-      // 使用 html2canvas 截图
       html2canvas(clone, {
-        backgroundColor: '#ffffff', // 设置白色背景
-        scale: scale, // 根据传入参数设置分辨率
-        useCORS: true, // 启用跨域支持
-        logging: true // 开启日志（调试用）
+        backgroundColor: '#ffffff',
+        scale: scale,
+        useCORS: true,
+        logging: false
       }).then(canvas => {
-        // 隐藏加载提示
         loadingElement.style.display = 'none';
-        
-        // 创建下载链接
         const link = document.createElement('a');
         link.download = '树洞消息-<?php echo $id; ?>-' + label + '.png';
         link.href = canvas.toDataURL('image/png');
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        // 移除临时容器
         document.body.removeChild(tempContainer);
       }).catch(err => {
-        console.error('截图生成失败:', err);
         loadingElement.style.display = 'none';
-        alert('图片生成失败，请重试！');
-        // 移除临时容器
+        alert('图片生成失败，请重试');
+        console.error('截图出错', err);
         document.body.removeChild(tempContainer);
       });
     }
 
-    // 下载小图（scale = 1）
     $('#downloadSmallImageBtn').click(function() {
       downloadImage(1, 'small');
     });
-
-    // 下载大图（scale = 2）
     $('#downloadLargeImageBtn').click(function() {
       downloadImage(2, 'large');
     });
