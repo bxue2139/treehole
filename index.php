@@ -99,7 +99,7 @@ $counter = 0;
       top: 20px;
       right: 20px;
       background-color: #007bff;
-      color: white;
+      color: #fff;
       border: none;
       border-radius: 5px;
       padding: 10px 15px;
@@ -239,9 +239,10 @@ $counter = 0;
     </div>
   </div>
   
-  <!-- RSS 导出入口（位于页面底部，居中美观） -->
+  <!-- RSS 导出入口、统计入口（并排放在一起） -->
   <div class="text-center mb-4">
     <a href="rss.php" target="_blank" class="btn btn-outline-primary">RSS导出</a>
+    <a href="stats.php" class="btn btn-outline-success ms-2">数据统计</a>
   </div>
 </div>
 
