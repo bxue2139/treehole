@@ -20,6 +20,10 @@ CREATE TABLE `messages` (
 
 
 
+请在你的数据库中执行以下 SQL（或在已有的 config.php 连接的数据库里手动添加一张 comments 表）：
+
+sql
+
 CREATE TABLE `comments` (
   `id` INT(11) NOT NULL AUTO_INCREMENT,
   `message_id` INT(11) NOT NULL,
@@ -33,4 +37,7 @@ CREATE TABLE `comments` (
   PRIMARY KEY (`id`),
   KEY `message_id_idx` (`message_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+说明：
 
+message_id 用于和主贴（messages 表）关联。
+也可以视自己需求加外键约束，例如 FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE 之类。
