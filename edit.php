@@ -26,7 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $_SESSION['verified'] = array();
     }
     if (isset($_POST['verify'])) {
-        // 验证密码：使用 password_verify() 验证密码是否正确
         $input_password = trim($_POST['edit_password']);
         if (!password_verify($input_password, $message['edit_password'])) {
             $error = "密码错误。";
@@ -34,7 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['verified'][$id] = true;
         }
     } elseif (isset($_POST['update'])) {
-        // 更新消息
         if (!isset($_SESSION['verified'][$id]) || $_SESSION['verified'][$id] !== true) {
             $error = "请先验证密码。";
         } else {
@@ -47,10 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $allowed_image_types = ['image/jpeg', 'image/png', 'image/gif'];
                     $allowed_video_types = ['video/mp4'];
 
-                    // 处理文件上传
                     if (in_array($_FILES['image']['type'], $allowed_image_types)) {
-                        // 处理图片文件
-                        // 若存在旧图片则删除
                         if ($file_path && file_exists($file_path)) {
                             unlink($file_path);
                         }
@@ -62,7 +57,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             $file_path = $new_filename;
                         }
                     } elseif (in_array($_FILES['image']['type'], $allowed_video_types)) {
-                        // 处理视频文件
                         if ($file_path && file_exists($file_path)) {
                             unlink($file_path);
                         }
@@ -79,7 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
 
                 if (!isset($error)) {
-                    // 设置当前时间作为最后修改时间
                     $current_time = date("Y-m-d H:i:s");
                     $stmt = $conn->prepare("UPDATE messages SET content = ?, image = ?, last_edit_time = ? WHERE id = ?");
                     $stmt->bind_param("sssi", $new_content, $file_path, $current_time, $id);
@@ -103,8 +96,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
   <meta charset="UTF-8">
   <title>编辑消息 #<?php echo $id; ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- 引入 Bootstrap CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css">
+  <!-- 引入 Editor.md CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/css/editormd.min.css" />
+  <style>
+    #editormd-container {
+      margin-bottom: 15px;
+    }
+    .editormd-fullscreen {
+      z-index: 2000 !important;
+    }
+    .container {
+      position: relative;
+      z-index: 1;
+    }
+    .editormd-toolbar .fa-fullscreen-custom:before {
+      content: "\f065";
+    }
+    .editormd-toolbar .fa-fullscreen-custom.active:before {
+      content: "\f066";
+    }
+  </style>
 </head>
 <body>
 <div class="container mt-4">
@@ -125,10 +137,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
   </form>
   <?php else: ?>
   <!-- 编辑表单 -->
-  <form action="edit.php?id=<?php echo $id; ?>" method="post" enctype="multipart/form-data">
+  <form action="edit.php?id=<?php echo $id; ?>" method="post" enctype="multipart/form-data" id="editForm">
     <div class="mb-3">
       <label for="content" class="form-label">消息内容 (支持 Markdown)</label>
-      <textarea class="form-control" id="content" name="content" rows="4" required><?php echo htmlspecialchars($message['content']); ?></textarea>
+      <div id="editormd-container">
+        <textarea style="display:none;" id="content" name="content" required><?php echo htmlspecialchars($message['content']); ?></textarea>
+      </div>
     </div>
     
     <?php if ($message['image'] && (strpos($message['image'], '.mp4') !== false)): ?>
@@ -157,7 +171,56 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
   <?php endif; ?>
 </div>
 
-<!-- 引入 Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/editormd.min.js"></script>
+<script>
+$(document).ready(function(){
+  <?php if(isset($_SESSION['verified'][$id]) && $_SESSION['verified'][$id] === true): ?>
+  var editor = editormd("editormd-container", {
+    width: "100%",
+    height: 300,
+    path: "https://cdn.jsdelivr.net/npm/editor.md@1.5.0/lib/",
+    markdown: $("#content").val(),
+    syncScrolling: "single",
+    toolbarIcons: function() {
+      return [
+        "undo", "redo", "|", 
+        "bold", "italic", "quote", "|", 
+        "h1", "h2", "h3", "|", 
+        "list-ul", "list-ol", "hr", "|",
+        "link", "image", "code", "table", "|",
+        "preview", "watch", "|",
+        "fullscreen-custom"
+      ];
+    },
+    toolbarIconsClass: {
+      "fullscreen-custom": "fa-fullscreen-custom"
+    },
+    toolbarHandlers: {
+      "fullscreen-custom": function(cm, icon, cursor, selection) {
+        this.fullscreen();
+        icon.toggleClass("active");
+      }
+    },
+    saveHTMLToTextarea: true,
+    onfullscreen: function() {
+      $(".container").hide();
+    },
+    onfullscreenExit: function() {
+      $(".container").show();
+      $(".fa-fullscreen-custom").removeClass("active");
+    }
+  });
+
+  $('#editForm').on('keypress', function(e) {
+    if (e.which == 13 && !e.shiftKey && !editor.isFullScreen()) {
+      e.preventDefault();
+      $('button[name="update"]').click();
+    }
+  });
+  <?php endif; ?>
+});
+</script>
 </body>
 </html>
