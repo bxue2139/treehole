@@ -34,6 +34,8 @@ $counter = 0;
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 引入 Bootstrap CSS -->
   <link rel="stylesheet" href="/bootstrap.min.css">
+  <!-- 引入 Editor.md CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/css/editormd.min.css" />
   <style>
     body {
       padding-top: 20px;
@@ -141,6 +143,24 @@ $counter = 0;
     .pagination {
       flex-wrap: wrap;
     }
+    /* Editor.md 自定义样式 */
+    #editormd-container {
+      margin-bottom: 15px;
+    }
+    .editormd-fullscreen {
+      z-index: 2000 !important;
+    }
+    #infoFlowCard {
+      position: relative;
+      z-index: 1;
+    }
+    /* 自定义全屏按钮样式 */
+    .editormd-toolbar .fa-fullscreen-custom:before {
+      content: "\f065"; /* FontAwesome 全屏图标 */
+    }
+    .editormd-toolbar .fa-fullscreen-custom.active:before {
+      content: "\f066"; /* FontAwesome 退出全屏图标 */
+    }
   </style>
 </head>
 <body>
@@ -153,7 +173,9 @@ $counter = 0;
       <form action="process.php" method="post" enctype="multipart/form-data" id="messageForm">
         <div class="mb-3">
           <label for="content" class="form-label">消息内容 (支持 Markdown)</label>
-          <textarea class="form-control" id="content" name="content" rows="4" placeholder="输入消息内容" required></textarea>
+          <div id="editormd-container">
+            <textarea style="display:none;" id="content" name="content" required></textarea>
+          </div>
         </div>
         <div class="mb-3">
           <label for="image" class="form-label">上传图片或视频 (可选)</label>
@@ -171,7 +193,7 @@ $counter = 0;
   </div>
   
   <!-- 树洞信息流部分 -->
-  <div class="card mb-4">
+  <div class="card mb-4" id="infoFlowCard">
     <div class="card-header">树洞信息流</div>
     <div class="card-body">
       <?php while($msg = $messages->fetch_assoc()): ?>
@@ -182,11 +204,9 @@ $counter = 0;
         </div>
         <div class="content">
           <?php 
-            // 使用 Parsedown 渲染 Markdown 为 HTML
             $htmlContent = $Parsedown->text($msg['content']);
             echo $htmlContent;
             
-            // 检测消息内容中的 YouTube 视频链接并显示视频
             $pattern = '/https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/';
             preg_match_all($pattern, $msg['content'], $matches);
             if (!empty($matches[1])) {
@@ -239,7 +259,7 @@ $counter = 0;
     </div>
   </div>
   
-  <!-- RSS 导出入口、统计入口（并排放在一起） -->
+  <!-- RSS 导出入口、统计入口 -->
   <div class="text-center mb-4">
     <a href="rss.php" target="_blank" class="btn btn-outline-primary">RSS导出</a>
     <a href="stats.php" class="btn btn-outline-success ms-2">数据统计</a>
@@ -277,30 +297,68 @@ $counter = 0;
   </form>
 </div>
 
-<!-- 引入 jQuery 与 Bootstrap JS -->
+<!-- 引入 jQuery -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<!-- 引入 Marked.js 用于 Markdown 预览 -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- 引入 Editor.md JS -->
+<script src="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/editormd.min.js"></script>
+<script src="/bootstrap.bundle.min.js"></script>
 <script>
 $(document).ready(function(){
   if (getCookie("darkMode") === "enabled") {
     $('body').addClass('inverted');
   }
   
+  // 初始化 Editor.md
+  var editor = editormd("editormd-container", {
+    width: "100%",
+    height: 300,
+    path: "https://cdn.jsdelivr.net/npm/editor.md@1.5.0/lib/",
+    markdown: "",
+    placeholder: "输入消息内容",
+    syncScrolling: "single",
+    toolbarIcons: function() {
+      return [
+        "undo", "redo", "|", 
+        "bold", "italic", "quote", "|", 
+        "h1", "h2", "h3", "|", 
+        "list-ul", "list-ol", "hr", "|",
+        "link", "image", "code", "table", "|",
+        "preview", "watch", "|",
+        "fullscreen-custom" // 自定义全屏按钮
+      ];
+    },
+    toolbarIconsClass: {
+      "fullscreen-custom": "fa-fullscreen-custom" // 自定义图标类
+    },
+    toolbarHandlers: {
+      "fullscreen-custom": function(cm, icon, cursor, selection) {
+        this.fullscreen(); // 切换全屏状态
+        icon.toggleClass("active"); // 切换图标状态
+      }
+    },
+    saveHTMLToTextarea: true,
+    onfullscreen: function() {
+      $("#infoFlowCard").hide();
+    },
+    onfullscreenExit: function() {
+      $("#infoFlowCard").show();
+      $(".fa-fullscreen-custom").removeClass("active"); // 重置图标状态
+    }
+  });
+
   $('#messageForm').on('keypress', function(e) {
-    if(e.which == 13 && !e.shiftKey) {
+    if (e.which == 13 && !e.shiftKey && !editor.isFullScreen()) {
       e.preventDefault();
       $('#sendBtn').click();
     }
   });
-  
+
   $('#previewBtn').click(function(){
-    var content = $('#content').val();
-    var html = marked.parse(content);
+    var content = editor.getMarkdown();
+    var html = editor.markdownToHTML(content);
     $('#previewArea').html(html).toggle();
   });
-  
+
   $('.copy-btn').click(function(){
     var content = $(this).data('content');
     navigator.clipboard.writeText(content).then(function(){
@@ -309,7 +367,7 @@ $(document).ready(function(){
       alert("复制失败: " + err);
     });
   });
-  
+
   $('#jumpBtn').click(function(){
     var id = $('#jumpId').val();
     if(id){
@@ -335,8 +393,8 @@ $(document).ready(function(){
   });
 
   $('.quick-search-item').click(function(){
-      var keyword = $(this).data('keyword');
-      window.location.href = 'search.php?q=' + encodeURIComponent(keyword);
+    var keyword = $(this).data('keyword');
+    window.location.href = 'search.php?q=' + encodeURIComponent(keyword);
   });
 
   function setCookie(name, value, days) {
