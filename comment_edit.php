@@ -9,7 +9,6 @@ if ($id <= 0) {
     die("无效的评论ID。");
 }
 
-// 获取评论
 $stmt = $conn->prepare("SELECT * FROM comments WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
@@ -20,7 +19,6 @@ if ($result->num_rows == 0) {
 $comment = $result->fetch_assoc();
 $stmt->close();
 
-// 对应的主消息ID
 $message_id = $comment['message_id'];
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -28,7 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $_SESSION['comment_verified'] = array();
     }
 
-    // 第一步：验证密码
     if (isset($_POST['verify'])) {
         $input_password = trim($_POST['edit_password']);
         if (!password_verify($input_password, $comment['edit_password'])) {
@@ -36,9 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         } else {
             $_SESSION['comment_verified'][$id] = true;
         }
-    }
-    // 第二步：执行更新
-    elseif (isset($_POST['update'])) {
+    } elseif (isset($_POST['update'])) {
         if (!isset($_SESSION['comment_verified'][$id]) || $_SESSION['comment_verified'][$id] !== true) {
             $error = "请先验证密码。";
         } else {
@@ -46,14 +41,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($new_content === '') {
                 $error = "评论内容不能为空。";
             } else {
-                // 先处理图片/视频
                 $file_path = $comment['image'];
                 if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
                     $allowed_image_types = ['image/jpeg', 'image/png', 'image/gif'];
                     $allowed_video_types = ['video/mp4'];
 
                     if (in_array($_FILES['image']['type'], $allowed_image_types)) {
-                        // 如果已存在旧文件，先删掉
                         if ($file_path && file_exists($file_path)) {
                             unlink($file_path);
                         }
@@ -80,7 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     }
                 }
 
-                // 更新数据库记录
                 if (!isset($error)) {
                     $current_time = date("Y-m-d H:i:s");
                     $stmt = $conn->prepare("UPDATE comments SET content = ?, image = ?, last_edit_time = ? WHERE id = ?");
@@ -106,6 +98,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
   <title>编辑评论 #<?php echo $id; ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/css/editormd.min.css" />
+  <style>
+    #editormd-container {
+      margin-bottom: 15px;
+    }
+    .editormd-fullscreen {
+      z-index: 2000 !important;
+    }
+    .container {
+      position: relative;
+      z-index: 1;
+    }
+    .editormd-toolbar .fa-fullscreen-custom:before {
+      content: "\f065";
+    }
+    .editormd-toolbar .fa-fullscreen-custom.active:before {
+      content: "\f066";
+    }
+  </style>
 </head>
 <body>
 <div class="container mt-4">
@@ -116,7 +127,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
   <?php endif; ?>
 
   <?php if (!isset($_SESSION['comment_verified'][$id]) || $_SESSION['comment_verified'][$id] !== true): ?>
-    <!-- 先验证密码 -->
     <form action="comment_edit.php?id=<?php echo $id; ?>" method="post">
       <div class="mb-3">
         <label for="edit_password" class="form-label">请输入编辑密码：</label>
@@ -126,11 +136,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
       <a href="share.php?id=<?php echo $message_id; ?>" class="btn btn-secondary">返回</a>
     </form>
   <?php else: ?>
-    <!-- 通过验证后，允许编辑 -->
-    <form action="comment_edit.php?id=<?php echo $id; ?>" method="post" enctype="multipart/form-data">
+    <form action="comment_edit.php?id=<?php echo $id; ?>" method="post" enctype="multipart/form-data" id="commentEditForm">
       <div class="mb-3">
         <label for="content" class="form-label">评论内容 (支持 Markdown)：</label>
-        <textarea class="form-control" id="content" name="content" rows="4" required><?php echo htmlspecialchars($comment['content']); ?></textarea>
+        <div id="editormd-container">
+          <textarea style="display:none;" id="content" name="content" required><?php echo htmlspecialchars($comment['content']); ?></textarea>
+        </div>
       </div>
       <?php if ($comment['image'] && strripos($comment['image'], '.mp4') !== false): ?>
         <div class="mb-3">
@@ -157,5 +168,57 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </form>
   <?php endif; ?>
 </div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/editormd.min.js"></script>
+<script>
+$(document).ready(function(){
+  <?php if(isset($_SESSION['comment_verified'][$id]) && $_SESSION['comment_verified'][$id] === true): ?>
+  var editor = editormd("editormd-container", {
+    width: "100%",
+    height: 200,
+    path: "https://cdn.jsdelivr.net/npm/editor.md@1.5.0/lib/",
+    markdown: $("#content").val(),
+    syncScrolling: "single",
+    toolbarIcons: function() {
+      return [
+        "undo", "redo", "|", 
+        "bold", "italic", "quote", "|", 
+        "h1", "h2", "h3", "|", 
+        "list-ul", "list-ol", "hr", "|",
+        "link", "image", "code", "table", "|",
+        "preview", "watch", "|",
+        "fullscreen-custom"
+      ];
+    },
+    toolbarIconsClass: {
+      "fullscreen-custom": "fa-fullscreen-custom"
+    },
+    toolbarHandlers: {
+      "fullscreen-custom": function(cm, icon, cursor, selection) {
+        this.fullscreen();
+        icon.toggleClass("active");
+      }
+    },
+    saveHTMLToTextarea: true,
+    onfullscreen: function() {
+      $(".container").hide();
+    },
+    onfullscreenExit: function() {
+      $(".container").show();
+      $(".fa-fullscreen-custom").removeClass("active");
+    }
+  });
+
+  $('#commentEditForm').on('keypress', function(e) {
+    if (e.which == 13 && !e.shiftKey && !editor.isFullScreen()) {
+      e.preventDefault();
+      $('button[name="update"]').click();
+    }
+  });
+  <?php endif; ?>
+});
+</script>
 </body>
 </html>
