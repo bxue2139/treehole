@@ -41,6 +41,8 @@ $stmt_c->close();
   <title>分享消息 #<?php echo $id; ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="/bootstrap.min.css">
+  <!-- 引入 Editor.md CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/css/editormd.min.css" />
   <!-- 引入 html2canvas 库（用于截图） -->
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
   <style>
@@ -135,7 +137,6 @@ $stmt_c->close();
       display: block;
       margin: 0 auto;
     }
-    /* 评论区样式 */
     .comment {
       border: 1px solid #eee;
       padding: 10px;
@@ -156,6 +157,23 @@ $stmt_c->close();
       font-size: 0.9em;
       color: #666;
     }
+    /* Editor.md 自定义样式 */
+    #comment-editormd-container {
+      margin-bottom: 15px;
+    }
+    .editormd-fullscreen {
+      z-index: 2000 !important;
+    }
+    #mainMessageCard {
+      position: relative;
+      z-index: 1;
+    }
+    .editormd-toolbar .fa-fullscreen-custom:before {
+      content: "\f065";
+    }
+    .editormd-toolbar .fa-fullscreen-custom.active:before {
+      content: "\f066";
+    }
   </style>
 </head>
 <body>
@@ -163,7 +181,7 @@ $stmt_c->close();
 
   <h3>分享消息 #<?php echo $id; ?></h3>
 
-  <!-- 主贴卡片，下面截图功能只会截取这里，不包含评论 -->
+  <!-- 主贴卡片 -->
   <div class="card" id="mainMessageCard">
     <div class="card-body">
       <div class="mb-2">
@@ -178,11 +196,9 @@ $stmt_c->close();
         <?php endif; ?>
       </div>
       <div class="content">
-        <!-- 使用 Parsedown 解析Markdown -->
         <?php echo $Parsedown->text($message['content']); ?>
       </div>
       <?php 
-      // 如果内容中包含 YouTube 链接
       $pattern = '/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/';
       if (preg_match_all($pattern, $message['content'], $matches)) {
           foreach ($matches[1] as $videoId) {
@@ -192,7 +208,6 @@ $stmt_c->close();
           }
       }
       ?>
-      <!-- 如果有图片或视频 -->
       <?php if($message['image']): ?>
         <?php 
           $ext = strtolower(pathinfo($message['image'], PATHINFO_EXTENSION));
@@ -207,7 +222,6 @@ $stmt_c->close();
         ?>
       <?php endif; ?>
 
-      <!-- 主贴功能按钮 -->
       <div class="function-buttons mt-3">
         <button class="btn btn-outline-secondary" id="copyFullContentBtn" data-content="<?php echo htmlspecialchars($message['content']); ?>">复制</button>
         <a href="edit.php?id=<?php echo $id; ?>" class="btn btn-warning">编辑</a>
@@ -222,7 +236,7 @@ $stmt_c->close();
     </div>
   </div>
 
-  <!-- 评论列表（不在上述card里，所以不会被截图功能截进去） -->
+  <!-- 评论列表 -->
   <hr>
   <h5>评论区</h5>
   <?php if ($comments_result->num_rows > 0): ?>
@@ -238,10 +252,8 @@ $stmt_c->close();
           </span>
         </div>
         <div class="mt-2">
-          <!-- 评论内容解析为HTML -->
           <?php echo $Parsedown->text($cmt['content']); ?>
         </div>
-        <!-- 如果该评论有图片或视频 -->
         <?php if($cmt['image']): ?>
           <?php 
             $c_ext = strtolower(pathinfo($cmt['image'], PATHINFO_EXTENSION));
@@ -268,13 +280,13 @@ $stmt_c->close();
   <!-- 添加新评论的表单 -->
   <hr>
   <h6>添加新评论</h6>
-  <form action="comment_process.php" method="post" enctype="multipart/form-data">
-    <!-- 隐藏域传主贴ID -->
+  <form action="comment_process.php" method="post" enctype="multipart/form-data" id="commentForm">
     <input type="hidden" name="message_id" value="<?php echo $id; ?>">
-
     <div class="mb-3">
       <label for="comment_content" class="form-label">评论内容 (支持 Markdown)：</label>
-      <textarea class="form-control" id="comment_content" name="content" rows="3" required></textarea>
+      <div id="comment-editormd-container">
+        <textarea style="display:none;" id="comment_content" name="content" required></textarea>
+      </div>
     </div>
     <div class="mb-3">
       <label for="comment_image" class="form-label">上传图片或视频 (可选)：</label>
@@ -284,7 +296,7 @@ $stmt_c->close();
       <label for="comment_edit_password" class="form-label">编辑密码 (用于后续编辑或删除)：</label>
       <input type="password" class="form-control" id="comment_edit_password" name="edit_password" placeholder="设置编辑密码" required>
     </div>
-    <button type="submit" class="btn btn-primary">提交评论</button>
+    <button type="submit" class="btn btn-primary" id="submitCommentBtn">提交评论</button>
   </form>
 
   <!-- 返回首页 -->
@@ -311,124 +323,169 @@ $stmt_c->close();
 <!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="/bootstrap.bundle.min.js"></script>
+<!-- 引入 Editor.md JS -->
+<script src="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/editormd.min.js"></script>
 <script>
-  $(document).ready(function() {
-    // 搜索框
-    $('#searchBtn').click(function() {
-      $('#searchContainer').fadeIn();
-    });
-    $('#closeSearch').click(function() {
-      $('#searchContainer').fadeOut();
-    });
-
-    // 二维码按钮
-    $('#qrBtn').hover(function(){
-      var buttonOffset = $(this).offset();
-      var scrollTop    = $(window).scrollTop();
-      var scrollLeft   = $(window).scrollLeft();
-      var buttonTop    = buttonOffset.top - scrollTop;
-      var buttonLeft   = buttonOffset.left - scrollLeft;
-      var qrCode       = $('#qrCode');
-
-      qrCode.css('display', 'block');
-      var qrWidth  = qrCode.outerWidth();
-      var qrHeight = qrCode.outerHeight();
-      qrCode.hide();
-
-      var windowWidth  = $(window).width();
-      var windowHeight = $(window).height();
-      var top  = buttonTop + $(this).outerHeight() + 5;
-      var left = buttonLeft;
-      if (left + qrWidth > windowWidth) {
-        left = windowWidth - qrWidth - 10;
+$(document).ready(function() {
+  // 初始化 Editor.md for comment form
+  var commentEditor = editormd("comment-editormd-container", {
+    width: "100%",
+    height: 200,
+    path: "https://cdn.jsdelivr.net/npm/editor.md@1.5.0/lib/",
+    markdown: "",
+    placeholder: "输入评论内容",
+    syncScrolling: "single",
+    toolbarIcons: function() {
+      return [
+        "undo", "redo", "|", 
+        "bold", "italic", "quote", "|", 
+        "h1", "h2", "h3", "|", 
+        "list-ul", "list-ol", "hr", "|",
+        "link", "image", "code", "table", "|",
+        "preview", "watch", "|",
+        "fullscreen-custom"
+      ];
+    },
+    toolbarIconsClass: {
+      "fullscreen-custom": "fa-fullscreen-custom"
+    },
+    toolbarHandlers: {
+      "fullscreen-custom": function(cm, icon, cursor, selection) {
+        this.fullscreen();
+        icon.toggleClass("active");
       }
-      if (top + qrHeight > windowHeight) {
-        top = buttonTop - qrHeight - 5;
-      }
-      qrCode.css({top: top, left: left}).fadeIn();
-    }, function(){
-      $('#qrCode').fadeOut();
-    });
+    },
+    saveHTMLToTextarea: true,
+    onfullscreen: function() {
+      $("#mainMessageCard").hide();
+    },
+    onfullscreenExit: function() {
+      $("#mainMessageCard").show();
+      $(".fa-fullscreen-custom").removeClass("active");
+    }
+  });
 
-    // 复制消息全文
-    $('#copyFullContentBtn').on('click', function() {
-      const content = $(this).attr('data-content');
-      navigator.clipboard.writeText(content)
-        .then(() => { alert('内容已成功复制到剪贴板！'); })
-        .catch(err => { alert('复制失败，请检查权限或浏览器兼容性。'); });
-    });
+  // 搜索框
+  $('#searchBtn').click(function() {
+    $('#searchContainer').fadeIn();
+  });
+  $('#closeSearch').click(function() {
+    $('#searchContainer').fadeOut();
+  });
 
-    // 复制链接（当前页面URL）
-    $('#copyLinkBtn').on('click', function() {
-      const currentUrl = window.location.href;
-      navigator.clipboard.writeText(currentUrl)
-        .then(() => { alert('链接已成功复制到剪贴板！'); })
-        .catch(err => { alert('复制链接失败，请检查权限或浏览器兼容性。'); });
-    });
+  // 二维码按钮
+  $('#qrBtn').hover(function(){
+    var buttonOffset = $(this).offset();
+    var scrollTop    = $(window).scrollTop();
+    var scrollLeft   = $(window).scrollLeft();
+    var buttonTop    = buttonOffset.top - scrollTop;
+    var buttonLeft   = buttonOffset.left - scrollLeft;
+    var qrCode       = $('#qrCode');
 
-    // 下载截图
-    function downloadImage(scale, label) {
-      const originalCardElement = document.querySelector('.card'); // 只截主贴
-      // 克隆一份卡片
-      const clone = originalCardElement.cloneNode(true);
+    qrCode.css('display', 'block');
+    var qrWidth  = qrCode.outerWidth();
+    var qrHeight = qrCode.outerHeight();
+    qrCode.hide();
 
-      clone.style.width      = 'auto';
-      clone.style.maxWidth   = '500px'; 
-      clone.style.boxSizing  = 'border-box';
-      clone.style.padding    = '20px';
+    var windowWidth  = $(window).width();
+    var windowHeight = $(window).height();
+    var top  = buttonTop + $(this).outerHeight() + 5;
+    var left = buttonLeft;
+    if (left + qrWidth > windowWidth) {
+      left = windowWidth - qrWidth - 10;
+    }
+    if (top + qrHeight > windowHeight) {
+      top = buttonTop - qrHeight - 5;
+    }
+    qrCode.css({top: top, left: left}).fadeIn();
+  }, function(){
+    $('#qrCode').fadeOut();
+  });
 
-      var contentElement = clone.querySelector('.content');
-      if (contentElement) {
-          contentElement.style.whiteSpace = 'normal';
-          contentElement.style.wordWrap   = 'break-word';
-      }
+  // 复制消息全文
+  $('#copyFullContentBtn').on('click', function() {
+    const content = $(this).attr('data-content');
+    navigator.clipboard.writeText(content)
+      .then(() => { alert('内容已成功复制到剪贴板！'); })
+      .catch(err => { alert('复制失败，请检查权限或浏览器兼容性。'); });
+  });
 
-      // 移除功能按钮区域，避免多余元素出现在截图
-      const btnDiv = clone.querySelector('.function-buttons');
-      if (btnDiv) {
-        btnDiv.remove();
-      }
+  // 复制链接
+  $('#copyLinkBtn').on('click', function() {
+    const currentUrl = window.location.href;
+    navigator.clipboard.writeText(currentUrl)
+      .then(() => { alert('链接已成功复制到剪贴板！'); })
+      .catch(err => { alert('复制链接失败，请检查权限或浏览器兼容性。'); });
+  });
 
-      // 放到临时容器隐藏
-      const tempContainer = document.createElement('div');
-      tempContainer.style.position = 'absolute';
-      tempContainer.style.top = '-9999px';
-      tempContainer.style.left = '-9999px';
-      tempContainer.appendChild(clone);
-      document.body.appendChild(tempContainer);
+  // 下载截图
+  function downloadImage(scale, label) {
+    const originalCardElement = document.querySelector('.card');
+    const clone = originalCardElement.cloneNode(true);
 
-      const loadingElement = document.getElementById('screenshotLoading');
-      loadingElement.style.display = 'block';
+    clone.style.width      = 'auto';
+    clone.style.maxWidth   = '500px'; 
+    clone.style.boxSizing  = 'border-box';
+    clone.style.padding    = '20px';
 
-      html2canvas(clone, {
-        backgroundColor: '#ffffff',
-        scale: scale,
-        useCORS: true,
-        logging: false
-      }).then(canvas => {
-        loadingElement.style.display = 'none';
-        const link = document.createElement('a');
-        link.download = '树洞消息-<?php echo $id; ?>-' + label + '.png';
-        link.href = canvas.toDataURL('image/png');
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        document.body.removeChild(tempContainer);
-      }).catch(err => {
-        loadingElement.style.display = 'none';
-        alert('图片生成失败，请重试');
-        console.error('截图出错', err);
-        document.body.removeChild(tempContainer);
-      });
+    var contentElement = clone.querySelector('.content');
+    if (contentElement) {
+        contentElement.style.whiteSpace = 'normal';
+        contentElement.style.wordWrap   = 'break-word';
     }
 
-    $('#downloadSmallImageBtn').click(function() {
-      downloadImage(1, 'small');
+    const btnDiv = clone.querySelector('.function-buttons');
+    if (btnDiv) {
+      btnDiv.remove();
+    }
+
+    const tempContainer = document.createElement('div');
+    tempContainer.style.position = 'absolute';
+    tempContainer.style.top = '-9999px';
+    tempContainer.style.left = '-9999px';
+    tempContainer.appendChild(clone);
+    document.body.appendChild(tempContainer);
+
+    const loadingElement = document.getElementById('screenshotLoading');
+    loadingElement.style.display = 'block';
+
+    html2canvas(clone, {
+      backgroundColor: '#ffffff',
+      scale: scale,
+      useCORS: true,
+      logging: false
+    }).then(canvas => {
+      loadingElement.style.display = 'none';
+      const link = document.createElement('a');
+      link.download = '树洞消息-<?php echo $id; ?>-' + label + '.png';
+      link.href = canvas.toDataURL('image/png');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      document.body.removeChild(tempContainer);
+    }).catch(err => {
+      loadingElement.style.display = 'none';
+      alert('图片生成失败，请重试');
+      console.error('截图出错', err);
+      document.body.removeChild(tempContainer);
     });
-    $('#downloadLargeImageBtn').click(function() {
-      downloadImage(2, 'large');
-    });
+  }
+
+  $('#downloadSmallImageBtn').click(function() {
+    downloadImage(1, 'small');
   });
+  $('#downloadLargeImageBtn').click(function() {
+    downloadImage(2, 'large');
+  });
+
+  // 阻止 Enter 默认提交，但允许 Shift+Enter 换行
+  $('#commentForm').on('keypress', function(e) {
+    if (e.which == 13 && !e.shiftKey && !commentEditor.isFullScreen()) {
+      e.preventDefault();
+      $('#submitCommentBtn').click();
+    }
+  });
+});
 </script>
 </body>
 </html>
