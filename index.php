@@ -3,7 +3,8 @@
 date_default_timezone_set('Asia/Shanghai');
 require_once 'config.php';
 require_once 'parsedown.php';  // 请确保 parsedown.php 存在
-$Parsedown = new Parsedown();
+require_once 'parsedown-extra.php';  // 加载 ParsedownExtra
+$Parsedown = new ParsedownExtra();
 
 // 分页设置
 $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
@@ -53,6 +54,20 @@ $counter = 0;
       max-width: 100%; 
       height: auto; 
       filter: none;
+    }
+    /* 添加表格样式 */
+    .message table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+    }
+    .message th, .message td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    .message th {
+      background-color: #f2f2f2;
     }
     .timeline-time { color: #888; font-size: 0.9em; }
     .actions {
@@ -140,6 +155,16 @@ $counter = 0;
     .inverted .btn-outline-danger {
       border-color: #b73b3b !important;
     }
+    /* 反色模式下的表格样式 */
+    .inverted .message th {
+      background-color: #444;
+    }
+    .inverted .message table {
+      border-color: #555;
+    }
+    .inverted .message th, .inverted .message td {
+      border-color: #555;
+    }
     .pagination {
       flex-wrap: wrap;
     }
@@ -150,6 +175,7 @@ $counter = 0;
     .editormd-fullscreen {
       z-index: 2000 !important;
     }
+    
     #infoFlowCard {
       position: relative;
       z-index: 1;
@@ -186,9 +212,7 @@ $counter = 0;
           <input type="password" class="form-control" id="edit_password" name="edit_password" placeholder="设置编辑密码" required>
         </div>
         <button type="submit" class="btn btn-primary" id="sendBtn">发送</button>
-        <button type="button" class="btn btn-secondary" id="previewBtn">预览</button>
       </form>
-      <div class="preview" id="previewArea"></div>
     </div>
   </div>
   
@@ -344,19 +368,6 @@ $(document).ready(function(){
       $("#infoFlowCard").show();
       $(".fa-fullscreen-custom").removeClass("active"); // 重置图标状态
     }
-  });
-
-  $('#messageForm').on('keypress', function(e) {
-    if (e.which == 13 && !e.shiftKey && !editor.isFullScreen()) {
-      e.preventDefault();
-      $('#sendBtn').click();
-    }
-  });
-
-  $('#previewBtn').click(function(){
-    var content = editor.getMarkdown();
-    var html = editor.markdownToHTML(content);
-    $('#previewArea').html(html).toggle();
   });
 
   $('.copy-btn').click(function(){
