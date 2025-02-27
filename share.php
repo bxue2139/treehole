@@ -1,38 +1,92 @@
 <?php
+// ===============================
 // share.php
-date_default_timezone_set('Asia/Shanghai');
-require_once 'config.php';
-require_once 'parsedown.php';
-$Parsedown = new Parsedown();
+// 增加文件缓存逻辑示例
+// ===============================
 
-// 获取主贴ID
+// 设置时区
+date_default_timezone_set('Asia/Shanghai');
+
+// 引入数据库配置
+require_once 'config.php';
+
+// 引入支持 Markdown 的 ParsedownExtra
+require_once 'parsedown.php';
+require_once 'parsedown-extra.php';
+$Parsedown = new ParsedownExtra();
+
+// 读取 GET 参数中的主贴 ID
 $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 if ($id <= 0) {
     die("无效的消息ID。");
 }
 
-// 获取该消息
+// --------------【1. 预先查询数据库，以获取必要的更新时间信息】--------------
 $stmt = $conn->prepare("SELECT * FROM messages WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
 $result = $stmt->get_result();
 if ($result->num_rows == 0) {
+    $stmt->close();
     die("消息不存在。");
 }
 $message = $result->fetch_assoc();
 $stmt->close();
 
-// 生成分享链接
-$protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
-$share_url  = $protocol . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . "/share.php?id=" . $id;
-$qr_code_url= "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" . urlencode($share_url);
-
-// 读取该消息下的所有评论
-$stmt_c = $conn->prepare("SELECT * FROM comments WHERE message_id = ? ORDER BY post_time ASC");
+// 评论部分（主要是拿到所有评论的最后更新时间，以便判断是否需要刷新缓存）
+$stmt_c = $conn->prepare("SELECT id, post_time, last_edit_time FROM comments WHERE message_id = ? ORDER BY post_time ASC");
 $stmt_c->bind_param("i", $id);
 $stmt_c->execute();
-$comments_result = $stmt_c->get_result();
+$comments_result_for_time = $stmt_c->get_result();
 $stmt_c->close();
+
+// 计算主贴和所有评论中最新的更新时间（没有 last_edit_time 则使用 post_time）
+$lastUpdateTimestamp = strtotime($message['last_edit_time'] ?? $message['post_time']);
+while ($cmtTimeCheck = $comments_result_for_time->fetch_assoc()) {
+    $commentLatest = $cmtTimeCheck['last_edit_time'] ?? $cmtTimeCheck['post_time'];
+    $commentTimeTs = strtotime($commentLatest);
+    if ($commentTimeTs > $lastUpdateTimestamp) {
+        $lastUpdateTimestamp = $commentTimeTs;
+    }
+}
+// 将评论记录指针重置以便后续继续读取（也可以重新查询一次）
+$comments_result_for_time->data_seek(0);
+
+// --------------【2. 配置文件缓存路径及逻辑】--------------
+$cacheEnabled = true;  // 是否启用缓存，可根据需求改为配置项
+$cacheDir     = __DIR__ . '/cache';  // 缓存文件存放目录
+$cacheFile    = $cacheDir . '/share_' . $id . '.html'; // 缓存文件名
+
+// 如果启用了缓存，且缓存文件存在，我们还需要验证它是否过期
+// 这里的策略是：若缓存文件的修改时间 >= 最新更新时间，则视为可用
+if ($cacheEnabled && file_exists($cacheFile)) {
+    $cacheMTime = filemtime($cacheFile);
+    if ($cacheMTime !== false && $cacheMTime >= $lastUpdateTimestamp) {
+        // 缓存文件是最新的，直接输出缓存并退出
+        readfile($cacheFile);
+        exit;
+    }
+}
+
+// --------------【3. 如缓存无效或不存在，则继续生成 HTML】--------------
+// 注意：因为之前的 $comments_result_for_time 已经被用来遍历一次
+// 我们还需要查询完整评论信息(包含 content、image 等)，用于后面实际渲染
+$stmt_c2 = $conn->prepare("SELECT * FROM comments WHERE message_id = ? ORDER BY post_time ASC");
+$stmt_c2->bind_param("i", $id);
+$stmt_c2->execute();
+$comments_result = $stmt_c2->get_result();
+$stmt_c2->close();
+
+// 生成分享链接（用于二维码）
+$protocol   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'
+              || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+$share_url  = $protocol . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI'])
+            . "/share.php?id=" . $id;
+$qr_code_url= "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data="
+            . urlencode($share_url);
+
+// 使用输出缓冲，将页面 HTML 内容存储在变量里
+ob_start();
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -40,11 +94,23 @@ $stmt_c->close();
   <meta charset="UTF-8">
   <title>分享消息 #<?php echo $id; ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- 引入 Bootstrap CSS -->
   <link rel="stylesheet" href="/bootstrap.min.css">
-  <!-- 引入 Editor.md CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/css/editormd.min.css" />
-  <!-- 引入 html2canvas 库（用于截图） -->
+
+  <!-- 引入 Editor.md 的 CSS -->
+  <link rel="stylesheet" href="assets/editor.md/css/editormd.min.css" />
+
+  <!-- 引入 Prism.js CSS（代码高亮） -->
+  <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
+  
+  <!-- 也可按需引入 Prism.js 其他语言支持，如下演示 PHP -->
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-php.min.js"></script>
+
+  <!-- html2canvas：用于将消息内容保存为图片 -->
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
   <style>
     .search-btn {
       position: fixed;
@@ -157,6 +223,19 @@ $stmt_c->close();
       font-size: 0.9em;
       color: #666;
     }
+    /* 针对 Markdown 表格的样式 */
+    .content table, .comment table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1rem;
+    }
+    .content table th, .content table td,
+    .comment table th, .comment table td {
+      border: 1px solid #dee2e6;
+      padding: 0.75rem;
+      vertical-align: top;
+    }
+
     /* Editor.md 自定义样式 */
     #comment-editormd-container {
       margin-bottom: 15px;
@@ -173,6 +252,17 @@ $stmt_c->close();
     }
     .editormd-toolbar .fa-fullscreen-custom.active:before {
       content: "\f066";
+    }
+    /* 用于隐藏或显示普通文本框的容器 */
+    #plainTextareaContainer {
+      display: none; /* 默认隐藏，选择“普通文本框”时显示 */
+      margin-bottom: 15px;
+    }
+    #plainTextarea {
+      width: 100%;
+      height: 200px;
+      padding: 10px;
+      box-sizing: border-box;
     }
   </style>
 </head>
@@ -195,35 +285,51 @@ $stmt_c->close();
           </span>
         <?php endif; ?>
       </div>
+
+      <!-- 消息内容区，支持 Markdown + Prism 高亮 -->
       <div class="content">
-        <?php echo $Parsedown->text($message['content']); ?>
+        <?php 
+          // 将消息内容转化为 HTML
+          $htmlContent = $Parsedown->text($message['content']);
+          echo $htmlContent;
+        ?>
       </div>
-      <?php 
+
+      <?php
+      // 检测消息内容中的 YouTube 视频链接并显示视频
       $pattern = '/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/';
       if (preg_match_all($pattern, $message['content'], $matches)) {
           foreach ($matches[1] as $videoId) {
               echo '<div class="ratio ratio-16x9 mb-3">';
-              echo '<iframe src="https://www.youtube.com/embed/'.$videoId.'" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+              echo '<iframe src="https://www.youtube.com/embed/'.$videoId.'" 
+                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                     allowfullscreen></iframe>';
               echo '</div>';
           }
       }
       ?>
+
+      <!-- 如果有图片或视频文件 -->
       <?php if($message['image']): ?>
         <?php 
           $ext = strtolower(pathinfo($message['image'], PATHINFO_EXTENSION));
           if ($ext === 'mp4') {
+            // 视频
             echo '<video controls style="max-width:100%; height:auto;">
                     <source src="'.$message['image'].'" type="video/mp4">
                     您的浏览器不支持视频播放。
                   </video>';
           } else {
+            // 图片
             echo '<img src="'.$message['image'].'" alt="上传图片">';
           }
         ?>
       <?php endif; ?>
 
+      <!-- 一些功能按钮：复制内容、编辑、复制链接、生成二维码、小图大图下载 -->
       <div class="function-buttons mt-3">
-        <button class="btn btn-outline-secondary" id="copyFullContentBtn" data-content="<?php echo htmlspecialchars($message['content']); ?>">复制</button>
+        <button class="btn btn-outline-secondary" id="copyFullContentBtn" 
+                data-content="<?php echo htmlspecialchars($message['content']); ?>">复制</button>
         <a href="edit.php?id=<?php echo $id; ?>" class="btn btn-warning">编辑</a>
         <button class="btn btn-outline-info" id="copyLinkBtn">链接</button>
         <button class="btn btn-outline-info share-btn" id="qrBtn">二维码</button>
@@ -252,9 +358,11 @@ $stmt_c->close();
           </span>
         </div>
         <div class="mt-2">
+          <!-- 采用 Parsedown 转换评论内容 -->
           <?php echo $Parsedown->text($cmt['content']); ?>
         </div>
         <?php if($cmt['image']): ?>
+          <!-- 如果评论中有图片或视频 -->
           <?php 
             $c_ext = strtolower(pathinfo($cmt['image'], PATHINFO_EXTENSION));
             if ($c_ext === 'mp4') {
@@ -280,21 +388,41 @@ $stmt_c->close();
   <!-- 添加新评论的表单 -->
   <hr>
   <h6>添加新评论</h6>
+
+  <!-- 选择编辑模式：Editor.md 或 普通文本框 -->
+  <div class="mb-2">
+    <label for="editorMode" class="form-label">选择编辑模式：</label>
+    <select id="editorMode" class="form-select" style="max-width: 200px;">
+      <option value="editor" selected>富文本 (Editor.md)</option>
+      <option value="plain">普通文本框</option>
+    </select>
+  </div>
+
+  <!-- 评论表单 -->
   <form action="comment_process.php" method="post" enctype="multipart/form-data" id="commentForm">
     <input type="hidden" name="message_id" value="<?php echo $id; ?>">
-    <div class="mb-3">
-      <label for="comment_content" class="form-label">评论内容 (支持 Markdown)：</label>
-      <div id="comment-editormd-container">
-        <textarea style="display:none;" id="comment_content" name="content" required></textarea>
-      </div>
+
+    <!-- 隐藏字段，真正提交给后端的内容 -->
+    <input type="hidden" id="finalContent" name="content" value="">
+
+    <!-- Editor.md 的容器（默认显示） -->
+    <div id="comment-editormd-container">
+      <textarea style="display:none;" id="commentEditorContent"></textarea>
     </div>
+
+    <!-- 普通文本框的容器（默认隐藏） -->
+    <div id="plainTextareaContainer">
+      <textarea id="plainTextarea" placeholder="在此输入评论内容"></textarea>
+    </div>
+
     <div class="mb-3">
       <label for="comment_image" class="form-label">上传图片或视频 (可选)：</label>
       <input class="form-control" type="file" id="comment_image" name="image" accept="image/*,video/mp4">
     </div>
     <div class="mb-3">
       <label for="comment_edit_password" class="form-label">编辑密码 (用于后续编辑或删除)：</label>
-      <input type="password" class="form-control" id="comment_edit_password" name="edit_password" placeholder="设置编辑密码" required>
+      <input type="password" class="form-control" id="comment_edit_password" name="edit_password" 
+             placeholder="设置编辑密码" required>
     </div>
     <button type="submit" class="btn btn-primary" id="submitCommentBtn">提交评论</button>
   </form>
@@ -323,17 +451,32 @@ $stmt_c->close();
 <!-- 引入 jQuery 与 Bootstrap JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="/bootstrap.bundle.min.js"></script>
+
 <!-- 引入 Editor.md JS -->
-<script src="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/editormd.min.js"></script>
+<script src="assets/editor.md/lib/raphael.min.js"></script>
+<script src="assets/editor.md/lib/marked.min.js"></script>
+<script src="assets/editor.md/lib/prettify.min.js"></script>
+<script src="assets/editor.md/lib/sequence-diagram.min.js"></script>
+<script src="assets/editor.md/lib/jquery.flowchart.min.js"></script>
+<script src="assets/editor.md/editormd.min.js"></script>
+
 <script>
 $(document).ready(function() {
-  // 初始化 Editor.md for comment form
+
+  // ==========================
+  // 1. 代码高亮初始化
+  // ==========================
+  Prism.highlightAll(); // 对页面中所有 <pre><code> 块进行高亮
+
+  // ==========================
+  // 2. 初始化评论的 Editor.md
+  // ==========================
   var commentEditor = editormd("comment-editormd-container", {
     width: "100%",
     height: 200,
     path: "https://cdn.jsdelivr.net/npm/editor.md@1.5.0/lib/",
     markdown: "",
-    placeholder: "输入评论内容",
+    placeholder: "输入评论内容 (支持 Markdown)",
     syncScrolling: "single",
     toolbarIcons: function() {
       return [
@@ -341,7 +484,7 @@ $(document).ready(function() {
         "bold", "italic", "quote", "|", 
         "h1", "h2", "h3", "|", 
         "list-ul", "list-ol", "hr", "|",
-        "link", "image", "code", "table", "|",
+        "link", "image", "code","table", "|",
         "preview", "watch", "|",
         "fullscreen-custom"
       ];
@@ -357,15 +500,57 @@ $(document).ready(function() {
     },
     saveHTMLToTextarea: true,
     onfullscreen: function() {
+      // 全屏时隐藏主贴
       $("#mainMessageCard").hide();
     },
     onfullscreenExit: function() {
+      // 退出全屏时显示主贴
       $("#mainMessageCard").show();
       $(".fa-fullscreen-custom").removeClass("active");
     }
   });
 
-  // 搜索框
+  // ==========================
+  // 3. 编辑模式切换
+  // ==========================
+  // 默认：富文本模式 (Editor.md) 显示，普通文本框隐藏
+  $("#editorMode").change(function(){
+    var mode = $(this).val();
+    if(mode === "editor"){
+      // 显示 Editor.md，隐藏普通文本框
+      $("#comment-editormd-container").show();
+      $("#plainTextareaContainer").hide();
+    } else {
+      // 显示普通文本框，隐藏 Editor.md
+      $("#comment-editormd-container").hide();
+      $("#plainTextareaContainer").show();
+    }
+  });
+
+  // ==========================
+  // 4. 提交评论时，根据所选编辑模式获取内容
+  // ==========================
+  $("#commentForm").submit(function(e) {
+    e.preventDefault(); // 阻止默认提交，先处理内容再提交
+
+    var mode = $("#editorMode").val();
+    if(mode === "editor"){
+      // 从 Editor.md 中获取内容
+      var mdContent = commentEditor.getMarkdown();
+      $("#finalContent").val(mdContent);
+    } else {
+      // 从普通文本框获取内容
+      var plainContent = $("#plainTextarea").val();
+      $("#finalContent").val(plainContent);
+    }
+
+    // 最后再提交表单
+    this.submit();
+  });
+
+  // ==========================
+  // 5. 悬浮搜索框逻辑
+  // ==========================
   $('#searchBtn').click(function() {
     $('#searchContainer').fadeIn();
   });
@@ -373,7 +558,9 @@ $(document).ready(function() {
     $('#searchContainer').fadeOut();
   });
 
-  // 二维码按钮
+  // ==========================
+  // 6. 二维码按钮
+  // ==========================
   $('#qrBtn').hover(function(){
     var buttonOffset = $(this).offset();
     var scrollTop    = $(window).scrollTop();
@@ -402,7 +589,9 @@ $(document).ready(function() {
     $('#qrCode').fadeOut();
   });
 
-  // 复制消息全文
+  // ==========================
+  // 7. 复制消息全文
+  // ==========================
   $('#copyFullContentBtn').on('click', function() {
     const content = $(this).attr('data-content');
     navigator.clipboard.writeText(content)
@@ -410,7 +599,9 @@ $(document).ready(function() {
       .catch(err => { alert('复制失败，请检查权限或浏览器兼容性。'); });
   });
 
-  // 复制链接
+  // ==========================
+  // 8. 复制链接
+  // ==========================
   $('#copyLinkBtn').on('click', function() {
     const currentUrl = window.location.href;
     navigator.clipboard.writeText(currentUrl)
@@ -418,27 +609,31 @@ $(document).ready(function() {
       .catch(err => { alert('复制链接失败，请检查权限或浏览器兼容性。'); });
   });
 
-  // 下载截图
+  // ==========================
+  // 9. 下载截图（小图或大图）
+  // ==========================
   function downloadImage(scale, label) {
     const originalCardElement = document.querySelector('.card');
     const clone = originalCardElement.cloneNode(true);
 
     clone.style.width      = 'auto';
-    clone.style.maxWidth   = '500px'; 
+    clone.style.maxWidth   = '500px';
     clone.style.boxSizing  = 'border-box';
     clone.style.padding    = '20px';
 
     var contentElement = clone.querySelector('.content');
     if (contentElement) {
-        contentElement.style.whiteSpace = 'normal';
-        contentElement.style.wordWrap   = 'break-word';
+      contentElement.style.whiteSpace = 'normal';
+      contentElement.style.wordWrap   = 'break-word';
     }
 
+    // 移除卡片内的功能按钮区域
     const btnDiv = clone.querySelector('.function-buttons');
     if (btnDiv) {
       btnDiv.remove();
     }
 
+    // 创建临时容器放置克隆元素
     const tempContainer = document.createElement('div');
     tempContainer.style.position = 'absolute';
     tempContainer.style.top = '-9999px';
@@ -477,15 +672,26 @@ $(document).ready(function() {
   $('#downloadLargeImageBtn').click(function() {
     downloadImage(2, 'large');
   });
-
-  // 阻止 Enter 默认提交，但允许 Shift+Enter 换行
-  $('#commentForm').on('keypress', function(e) {
-    if (e.which == 13 && !e.shiftKey && !commentEditor.isFullScreen()) {
-      e.preventDefault();
-      $('#submitCommentBtn').click();
-    }
-  });
 });
 </script>
 </body>
 </html>
+<?php
+// --------------【4. 将输出缓冲内容写入缓存文件，然后输出】--------------
+
+// 获取缓冲区内容
+$pageContent = ob_get_contents();
+ob_end_clean();
+
+// 如果启用了缓存，则写入文件
+if ($cacheEnabled) {
+    // 确保缓存目录存在
+    if (!is_dir($cacheDir)) {
+        mkdir($cacheDir, 0777, true);
+    }
+    // 写入缓存文件
+    file_put_contents($cacheFile, $pageContent);
+}
+
+// 最后输出生成的页面内容
+echo $pageContent;
