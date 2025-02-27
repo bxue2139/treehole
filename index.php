@@ -31,12 +31,21 @@ $counter = 0;
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Tree-hole</title>
+  <title>树洞-留言板</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 引入 Bootstrap CSS -->
   <link rel="stylesheet" href="/bootstrap.min.css">
+  
   <!-- 引入 Editor.md CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/css/editormd.min.css" />
+  
+  <!-- Prism.js CSS（代码高亮） -->
+  <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
+  
+  <!-- Prism.js（以及示例中的 php 语言包） -->
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-php.min.js"></script>
+  
   <style>
     body {
       padding-top: 20px;
@@ -187,22 +196,51 @@ $counter = 0;
     .editormd-toolbar .fa-fullscreen-custom.active:before {
       content: "\f066"; /* FontAwesome 退出全屏图标 */
     }
+    
+    /* 新增：普通文本框容器（默认隐藏） */
+    #plainTextareaContainer {
+      display: none; 
+      margin-bottom: 15px;
+    }
+    #plainTextarea {
+      width: 100%;
+      height: 300px;
+      padding: 10px;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
 <div class="container">
   <h2 class="text-center">树洞-留言板</h2>
-  <!-- 消息编辑部分 -->
+
+  <!-- 消息编辑部分（新增：编辑器模式切换） -->
   <div class="card mb-4">
     <div class="card-header">消息编辑</div>
     <div class="card-body">
+      <!-- 模式选择：富文本 (Editor.md) / 普通文本框 -->
+      <div class="mb-2">
+        <label for="editorMode" class="form-label">选择编辑模式：</label>
+        <select id="editorMode" class="form-select" style="max-width: 200px;">
+          <option value="editor" selected>富文本 (Editor.md)</option>
+          <option value="plain">普通文本框</option>
+        </select>
+      </div>
+
       <form action="process.php" method="post" enctype="multipart/form-data" id="messageForm">
-        <div class="mb-3">
-          <label for="content" class="form-label">消息内容 (支持 Markdown)</label>
-          <div id="editormd-container">
-            <textarea style="display:none;" id="content" name="content" required></textarea>
-          </div>
+        <!-- 隐藏字段，真正提交到后端 -->
+        <input type="hidden" id="finalContent" name="content" value="" required>
+
+        <!-- Editor.md 容器（默认显示） -->
+        <div id="editormd-container">
+          <textarea style="display:none;" id="editorMdContent"></textarea>
         </div>
+
+        <!-- 普通文本框容器（默认隐藏） -->
+        <div id="plainTextareaContainer">
+          <textarea id="plainTextarea" placeholder="在此输入消息内容"></textarea>
+        </div>
+
         <div class="mb-3">
           <label for="image" class="form-label">上传图片或视频 (可选)</label>
           <input class="form-control" type="file" id="image" name="image" accept="image/*,video/mp4">
@@ -228,9 +266,28 @@ $counter = 0;
         </div>
         <div class="content">
           <?php 
-            $htmlContent = $Parsedown->text($msg['content']);
+            // 缓存生成的 HTML 内容：先判断缓存文件是否存在且有效（文件修改时间不早于消息最后编辑时间或发布时间）
+            $cacheDir = 'cache';
+            if (!is_dir($cacheDir)) {
+                mkdir($cacheDir, 0755, true);
+            }
+            $cacheFile = $cacheDir . '/parsed_' . $msg['id'] . '.html';
+            $msgTime = strtotime(!empty($msg['last_edit_time']) ? $msg['last_edit_time'] : $msg['post_time']);
+            $useCache = false;
+            if (file_exists($cacheFile)) {
+                if (filemtime($cacheFile) >= $msgTime) {
+                    $useCache = true;
+                }
+            }
+            if ($useCache) {
+                $htmlContent = file_get_contents($cacheFile);
+            } else {
+                $htmlContent = $Parsedown->text($msg['content']);
+                file_put_contents($cacheFile, $htmlContent);
+            }
             echo $htmlContent;
-            
+
+            // 检测 YouTube 链接
             $pattern = '/https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/';
             preg_match_all($pattern, $msg['content'], $matches);
             if (!empty($matches[1])) {
@@ -326,50 +383,102 @@ $counter = 0;
 <!-- 引入 Editor.md JS -->
 <script src="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/editormd.min.js"></script>
 <script src="/bootstrap.bundle.min.js"></script>
+
+<!-- 以下几段脚本是 Editor.md 可能需要的依赖（如果本地已有，可修改路径） -->
+<script src="assets/editor.md/lib/raphael.min.js"></script>
+<script src="assets/editor.md/lib/marked.min.js"></script>
+<script src="assets/editor.md/lib/prettify.min.js"></script>
+<script src="assets/editor.md/lib/sequence-diagram.min.js"></script>
+<script src="assets/editor.md/lib/jquery.flowchart.min.js"></script>
+<script src="assets/editor.md/editormd.min.js"></script>
+
 <script>
 $(document).ready(function(){
+  // 如果有暗色模式Cookie，则启用
   if (getCookie("darkMode") === "enabled") {
     $('body').addClass('inverted');
   }
   
-  // 初始化 Editor.md
+  // 代码高亮
+  Prism.highlightAll();
+
+  // 初始化 Editor.md（用于富文本编辑模式）
   var editor = editormd("editormd-container", {
     width: "100%",
     height: 300,
     path: "https://cdn.jsdelivr.net/npm/editor.md@1.5.0/lib/",
     markdown: "",
-    placeholder: "输入消息内容",
+    placeholder: "输入消息内容 (支持 Markdown)",
     syncScrolling: "single",
+    codeFold: true,
+    saveHTMLToTextarea: true,
+    previewCodeHighlight: true,
     toolbarIcons: function() {
       return [
         "undo", "redo", "|", 
         "bold", "italic", "quote", "|", 
         "h1", "h2", "h3", "|", 
         "list-ul", "list-ol", "hr", "|",
-        "link", "image", "code", "table", "|",
+        "link", "image", "code","code-block","preformatted-text","table", "|",
         "preview", "watch", "|",
         "fullscreen-custom" // 自定义全屏按钮
       ];
     },
     toolbarIconsClass: {
-      "fullscreen-custom": "fa-fullscreen-custom" // 自定义图标类
+      "fullscreen-custom": "fa-fullscreen-custom"
     },
     toolbarHandlers: {
       "fullscreen-custom": function(cm, icon, cursor, selection) {
-        this.fullscreen(); // 切换全屏状态
-        icon.toggleClass("active"); // 切换图标状态
+        this.fullscreen(); // 切换全屏
+        icon.toggleClass("active");
       }
     },
-    saveHTMLToTextarea: true,
     onfullscreen: function() {
       $("#infoFlowCard").hide();
     },
     onfullscreenExit: function() {
       $("#infoFlowCard").show();
-      $(".fa-fullscreen-custom").removeClass("active"); // 重置图标状态
+      $(".fa-fullscreen-custom").removeClass("active");
     }
   });
 
+  // 模式切换：editor / plain
+  $("#editorMode").change(function(){
+    var mode = $(this).val();
+    if(mode === "editor"){
+      // 显示 Editor.md
+      $("#editormd-container").show();
+      $("#plainTextareaContainer").hide();
+    } else {
+      // 显示普通文本框
+      $("#editormd-container").hide();
+      $("#plainTextareaContainer").show();
+    }
+  });
+
+  // 表单提交时，根据模式获取内容到隐藏字段
+  $("#messageForm").submit(function(e){
+    // 防止 HTML5 required 在没填时报错，这里统一处理
+    var finalContent = "";
+    if($("#editorMode").val() === "editor"){
+      // 从Editor.md获取
+      finalContent = editor.getMarkdown();
+    } else {
+      // 从普通文本框获取
+      finalContent = $("#plainTextarea").val();
+    }
+    // 赋值到隐藏input
+    $("#finalContent").val(finalContent.trim());
+    
+    // 如果为空，阻止提交并提示
+    if(!finalContent.trim()){
+      alert("消息内容不能为空！");
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // 复制消息全文
   $('.copy-btn').click(function(){
     var content = $(this).data('content');
     navigator.clipboard.writeText(content).then(function(){
@@ -379,6 +488,7 @@ $(document).ready(function(){
     });
   });
 
+  // 跳转到指定ID
   $('#jumpBtn').click(function(){
     var id = $('#jumpId').val();
     if(id){
@@ -386,14 +496,15 @@ $(document).ready(function(){
     }
   });
 
+  // 显示/关闭搜索框
   $('#searchBtn').click(function() {
     $('#searchContainer').fadeIn();
   });
-
   $('#closeSearch').click(function() {
     $('#searchContainer').fadeOut();
   });
 
+  // 切换反色模式
   $('#invertBtn').click(function(){
     $('body').toggleClass('inverted');
     if ($('body').hasClass('inverted')) {
@@ -403,6 +514,7 @@ $(document).ready(function(){
     }
   });
 
+  // 快速搜索标签
   $('.quick-search-item').click(function(){
     var keyword = $(this).data('keyword');
     window.location.href = 'search.php?q=' + encodeURIComponent(keyword);
@@ -419,7 +531,7 @@ $(document).ready(function(){
     var name = name + "=";
     var decodedCookie = decodeURIComponent(document.cookie);
     var ca = decodedCookie.split(';');
-    for(var i = 0; i < ca.length; i++) {
+    for(var i = 0; i < ca.length; i++){
       var c = ca[i];
       while (c.charAt(0) == ' ') {
         c = c.substring(1);
